@@ -1,0 +1,593 @@
+--================================================================================
+--  🌸 かめはめ波GUI 完全版
+--  オリジナル Pozer S HUB 全機能維持 + ピンク＆白カスタムGUI
+--  タッチドラッグ移動対応（モバイル＆PC）
+--================================================================================
+
+-- 1. サービスの取得
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Camera = Workspace.CurrentCamera
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+-- 2. リモートイベントの取得
+local Events = {
+    GrabEvents = ReplicatedStorage:WaitForChild("GrabEvents", 5),
+    DataEvents = ReplicatedStorage:WaitForChild("DataEvents", 5)
+}
+local SetNetworkOwnerEvent = Events.GrabEvents and Events.GrabEvents:WaitForChild("SetNetworkOwner", 5)
+local UpdateLineColorsEvent = Events.DataEvents and Events.DataEvents:WaitForChild("UpdateLineColorsEvent", 5)
+
+-- 3. カラー定義
+local COLORS = {
+    DEFAULT = Color3.fromRGB(255, 255, 255),
+    RED     = Color3.fromRGB(255, 0, 0),
+    BLUE    = Color3.fromRGB(0, 0, 255),
+    PURPLE  = Color3.fromRGB(128, 0, 128),
+    BLACK   = Color3.fromRGB(0, 0, 0)
+}
+
+-- 4. 状態管理
+local HUB_STATE = {
+    IsEnabled = true,
+    IsAnimating = false,
+    AnimationTimeAccumulator = 0,
+    MaxDiceLimit = 150,
+    SphereRadiusNormal = 3.5,
+    SphereHeightOffset = 0,
+    DiceRotationSpeed = 2.0,
+}
+
+local DiceStorage = {
+    All = {},
+    RightSphere = {},
+    LeftSphere = {},
+    HoveringMap = {},
+    ColorMap = {},
+    OriginalProperties = {}
+}
+
+local SpecialAnim = {
+    Type = "NONE",
+    Timer = 0,
+    FlyDir = Vector3.zero,
+    StartPos = Vector3.zero,
+    BurstDirections = {}
+}
+
+-- 5. コアユーティリティ（他人のダイス除外、物理制御、球体計算）
+local function IsOwnedByOtherPlayer(part)
+    if not part or not part:IsA("BasePart") then return true end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local pChar = player.Character
+            if pChar and part:IsDescendantOf(pChar) then return true end
+            local pBackpack = player:FindFirstChild("Backpack")
+            if pBackpack and part:IsDescendantOf(pBackpack) then return true end
+        end
+    end
+    local success, owner = pcall(function() return part:GetNetworkOwner() end)
+    if success and owner ~= nil and owner ~= LocalPlayer then return true end
+    return false
+end
+
+local function IsMyOnlyToyPart(part)
+    if not part or not part:IsA("BasePart") or part.Anchored then return false end
+    local myChar = LocalPlayer.Character
+    if myChar and part:IsDescendantOf(myChar) then return false end
+    if IsOwnedByOtherPlayer(part) then return false end
+    local pName = part.Name
+    local parentName = part.Parent and part.Parent.Name or ""
+    if pName:find("Dice") or parentName:find("Dice") or pName:find("Toy") or parentName:find("Toy") then 
+        return true 
+    end
+    return false
+end
+
+local function SetupDicePhysics(part)
+    if not part or not part:IsA("BasePart") then return end
+    if not DiceStorage.OriginalProperties[part] then
+        DiceStorage.OriginalProperties[part] = {
+            Color = part.Color,
+            CFrame = part.CFrame,
+            CanCollide = part.CanCollide
+        }
+    end
+    part.CanCollide = false
+    local bv = part:FindFirstChild("DiceForce") or Instance.new("BodyVelocity")
+    bv.Name = "DiceForce" bv.MaxForce = Vector3.new(1, 1, 1) * 1e7 bv.P = 12500 bv.Parent = part
+    local bg = part:FindFirstChild("DiceGyro") or Instance.new("BodyGyro")
+    bg.Name = "DiceGyro" bg.MaxTorque = Vector3.new(1, 1, 1) * 1e7 bg.P = 12500 bg.Parent = part
+end
+
+local function RemoveDicePhysics(part)
+    if not part then return end
+    local bv = part:FindFirstChild("DiceForce")
+    local bg = part:FindFirstChild("DiceGyro")
+    if bv then bv:Destroy() end
+    if bg then bg:Destroy() end
+    part.CanCollide = true
+end
+
+local function CleanupDiceDatabase()
+    for i = #DiceStorage.All, 1, -1 do
+        local part = DiceStorage.All[i]
+        if not part or not part.Parent or not part:IsDescendantOf(Workspace) or IsOwnedByOtherPlayer(part) then
+            DiceStorage.HoveringMap[part] = nil
+            DiceStorage.ColorMap[part] = nil
+            RemoveDicePhysics(part)
+            table.remove(DiceStorage.All, i)
+        end
+    end
+end
+
+local function AutoDistributeToysSymmetrically()
+    CleanupDiceDatabase()
+    local char = LocalPlayer.Character
+    local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+    if not root then return end
+    for _, part in ipairs(Workspace:GetPartBoundsInRadius(root.Position, 120)) do
+        if #DiceStorage.All >= HUB_STATE.MaxDiceLimit then break end
+        if IsMyOnlyToyPart(part) and not DiceStorage.HoveringMap[part] then
+            DiceStorage.HoveringMap[part] = true
+            SetupDicePhysics(part)
+            table.insert(DiceStorage.All, part)
+            if not DiceStorage.ColorMap[part] then DiceStorage.ColorMap[part] = COLORS.DEFAULT end
+        end
+    end
+    DiceStorage.RightSphere = {}
+    DiceStorage.LeftSphere = {}
+    for index, part in ipairs(DiceStorage.All) do
+        if index % 2 == 1 then table.insert(DiceStorage.RightSphere, part)
+        else table.insert(DiceStorage.LeftSphere, part) end
+    end
+end
+
+local function CalculateSpherePointOffset(index, totalPoints, radius, timeOffset, speedMult)
+    if totalPoints <= 0 then return Vector3.zero end
+    local goldenRatio = (1 + math.sqrt(5)) / 2
+    local theta = 2 * math.pi * index / goldenRatio
+    local phi = math.acos(1 - (2 * (index - 0.5) / totalPoints))
+    local x = radius * math.sin(phi) * math.cos(theta)
+    local y = radius * math.sin(phi) * math.sin(theta)
+    local z = radius * math.cos(phi)
+    local spd = speedMult or HUB_STATE.DiceRotationSpeed
+    local rotCF = CFrame.Angles(timeOffset * spd * 0.75, timeOffset * spd, timeOffset * spd * 0.5)
+    return rotCF:VectorToWorldSpace(Vector3.new(x, y, z))
+end
+
+-- 6. カスタムGUIの作成（ピンク＆白 / タッチドラッグ対応）
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "KamehamehaGUI"
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 310, 0, 520)
+MainFrame.Position = UDim2.new(0.5, -155, 0.5, -260)
+MainFrame.BackgroundColor3 = Color3.fromRGB(255, 20, 147) -- ディープピンク
+MainFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+MainFrame.BorderSizePixel = 3
+MainFrame.ClipsDescendants = true
+MainFrame.Parent = ScreenGui
+
+-- タイトルバー（ドラッグ領域）
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 35)
+TitleBar.BackgroundColor3 = Color3.fromRGB(200, 10, 110)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, 0, 1, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "🌸 かめはめ波GUI"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize = 18
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.Parent = TitleBar
+
+-- 閉じるボタン
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 1, 0)
+CloseBtn.Position = UDim2.new(1, -30, 0, 0)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 18
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Parent = TitleBar
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+-- スクロール対応のためのコンテナ
+local ScrollContainer = Instance.new("ScrollingFrame")
+ScrollContainer.Size = UDim2.new(1, -10, 1, -45)
+ScrollContainer.Position = UDim2.new(0, 5, 0, 40)
+ScrollContainer.BackgroundTransparency = 1
+ScrollContainer.BorderSizePixel = 0
+ScrollContainer.CanvasSize = UDim2.new(0, 0, 0, 580)
+ScrollContainer.ScrollBarThickness = 4
+ScrollContainer.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
+ScrollContainer.Parent = MainFrame
+
+local function CreateButton(text, yPos, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -10, 0, 35)
+    btn.Position = UDim2.new(0, 5, 0, yPos)
+    btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextColor3 = Color3.fromRGB(255, 20, 147)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.GothamSemibold
+    btn.Text = text
+    btn.BorderColor3 = Color3.fromRGB(255, 20, 147)
+    btn.BorderSizePixel = 2
+    btn.Parent = ScrollContainer
+    btn.MouseButton1Click:Connect(callback)
+    btn.MouseEnter:Connect(function()
+        btn.BackgroundColor3 = Color3.fromRGB(255, 220, 235)
+    end)
+    btn.MouseLeave:Connect(function()
+        btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    end)
+    return btn
+end
+
+local function CreateLabel(text, yPos)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -10, 0, 20)
+    lbl.Position = UDim2.new(0, 5, 0, yPos)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.TextSize = 13
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = ScrollContainer
+    return lbl
+end
+
+local function CreateSlider(text, yPos, minVal, maxVal, defaultVal, callback)
+    local baseY = yPos
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -10, 0, 18)
+    lbl.Position = UDim2.new(0, 5, 0, baseY)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text .. ": " .. tostring(defaultVal)
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.TextSize = 12
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = ScrollContainer
+
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(0, 60, 0, 25)
+    box.Position = UDim2.new(1, -70, 0, baseY - 2)
+    box.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    box.TextColor3 = Color3.fromRGB(255, 20, 147)
+    box.TextSize = 14
+    box.Font = Enum.Font.GothamBold
+    box.Text = tostring(defaultVal)
+    box.BorderColor3 = Color3.fromRGB(255, 20, 147)
+    box.BorderSizePixel = 2
+    box.Parent = ScrollContainer
+
+    box.FocusLost:Connect(function()
+        local val = tonumber(box.Text)
+        if val then
+            local clamped = math.clamp(val, minVal, maxVal)
+            box.Text = tostring(clamped)
+            callback(clamped)
+            lbl.Text = text .. ": " .. tostring(clamped)
+        else
+            box.Text = tostring(defaultVal)
+        end
+    end)
+    return box
+end
+
+-- 配置用 Y 座標
+local y = 5
+
+-- ボタン 1~6
+CreateButton("🔴🔵 [1] 右赤 & 左青 カラー適用", y, function()
+    SpecialAnim.Type = "NONE"
+    HUB_STATE.IsAnimating = false
+    for _, d in ipairs(DiceStorage.RightSphere) do DiceStorage.ColorMap[d] = COLORS.RED end
+    for _, d in ipairs(DiceStorage.LeftSphere) do DiceStorage.ColorMap[d] = COLORS.BLUE end
+end)
+y = y + 40
+
+CreateButton("🟣💥 [2] 紫色巨大合体 ➔ 一気に射出", y, function()
+    local char = LocalPlayer.Character
+    local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+    if not root then return end
+    HUB_STATE.IsAnimating = true
+    SpecialAnim.Type = "MERGE_AND_SHOOT"
+    SpecialAnim.Timer = 0
+    SpecialAnim.FlyDir = root.CFrame.LookVector
+end)
+y = y + 40
+
+CreateButton("🟣 [3] 紫色合体 & 巨大化（維持）", y, function()
+    HUB_STATE.IsAnimating = true
+    SpecialAnim.Type = "PURPLE_MERGE"
+    SpecialAnim.Timer = 0
+end)
+y = y + 40
+
+CreateButton("🔵 [4] 青色 1周回転 ＆ 粉砕バースト", y, function()
+    HUB_STATE.IsAnimating = true
+    SpecialAnim.Type = "BLUE_BURST"
+    SpecialAnim.Timer = 0
+    for _, d in ipairs(DiceStorage.All) do DiceStorage.ColorMap[d] = COLORS.BLUE end
+    SpecialAnim.BurstDirections = {}
+    for _, d in ipairs(DiceStorage.All) do
+        SpecialAnim.BurstDirections[d] = Vector3.new(math.random(-100, 100), math.random(-20, 100), math.random(-100, 100)).Unit
+    end
+end)
+y = y + 40
+
+CreateButton("🔴 [5] 赤色 回転 ＆ パンッと射出", y, function()
+    local char = LocalPlayer.Character
+    local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+    if not root then return end
+    HUB_STATE.IsAnimating = true
+    SpecialAnim.Type = "RED_SHOOT"
+    SpecialAnim.Timer = 0
+    SpecialAnim.FlyDir = root.CFrame.LookVector
+    for _, d in ipairs(DiceStorage.All) do DiceStorage.ColorMap[d] = COLORS.RED end
+end)
+y = y + 40
+
+CreateButton("⚫ [6] 頭上ブラックホール作成・維持", y, function()
+    HUB_STATE.IsAnimating = true
+    SpecialAnim.Type = "BLACK_HOLE"
+    for _, d in ipairs(DiceStorage.All) do DiceStorage.ColorMap[d] = COLORS.BLACK end
+end)
+y = y + 50
+
+-- 設定項目
+CreateLabel("⚙️ パラメータ調整", y)
+y = y + 25
+
+local sliderSize = CreateSlider("球体の半径", y, 1, 15, 3.5, function(v) HUB_STATE.SphereRadiusNormal = v end)
+y = y + 35
+
+local sliderHeight = CreateSlider("高さオフセット", y, -10, 20, 0, function(v) HUB_STATE.SphereHeightOffset = v end)
+y = y + 35
+
+local sliderSpeed = CreateSlider("回転速度", y, 0, 15, 2.0, function(v) HUB_STATE.DiceRotationSpeed = v end)
+y = y + 50
+
+-- フッター
+local Footer = Instance.new("TextLabel")
+Footer.Size = UDim2.new(1, -10, 0, 20)
+Footer.Position = UDim2.new(0, 5, 0, y)
+Footer.BackgroundTransparency = 1
+Footer.Text = "かめはめ波GUI | タッチでドラッグ移動可能"
+Footer.TextColor3 = Color3.fromRGB(255, 200, 220)
+Footer.TextSize = 11
+Footer.Font = Enum.Font.GothamLight
+Footer.Parent = ScrollContainer
+
+-- 7. ドラッグ機能（マウス＆タッチ対応）
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+-- 8. メインループ（Heartbeat）
+RunService.Heartbeat:Connect(function(dt)
+    HUB_STATE.AnimationTimeAccumulator = HUB_STATE.AnimationTimeAccumulator + dt
+    AutoDistributeToysSymmetrically()
+
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if not root then return end
+
+    local heightOffset = Vector3.new(0, HUB_STATE.SphereHeightOffset, 0)
+    local rightCenter = (root.CFrame * CFrame.new(8, 0, 0)).Position + heightOffset
+    local leftCenter  = (root.CFrame * CFrame.new(-8, 0, 0)).Position + heightOffset
+    local frontCenter = (root.CFrame * CFrame.new(0, 0, -6)).Position + heightOffset
+    local headCenter  = (root.CFrame * CFrame.new(0, 8, 0)).Position + heightOffset
+
+    -- ==========================================
+    -- 演出ステートマシン（オリジナル維持）
+    -- ==========================================
+    if HUB_STATE.IsAnimating then
+        SpecialAnim.Timer = SpecialAnim.Timer + dt
+
+        if SpecialAnim.Type == "MERGE_AND_SHOOT" then
+            if SpecialAnim.Timer <= 1.8 then
+                local progress = math.clamp(SpecialAnim.Timer / 1.8, 0, 1)
+                for _, d in ipairs(DiceStorage.RightSphere) do DiceStorage.ColorMap[d] = COLORS.RED:Lerp(COLORS.PURPLE, progress) end
+                for _, d in ipairs(DiceStorage.LeftSphere) do DiceStorage.ColorMap[d] = COLORS.BLUE:Lerp(COLORS.PURPLE, progress) end
+                local rPos = rightCenter:Lerp(frontCenter, progress)
+                local lPos = leftCenter:Lerp(frontCenter, progress)
+                for i, d in ipairs(DiceStorage.RightSphere) do
+                    local offset = CalculateSpherePointOffset(i, #DiceStorage.RightSphere, 4.0, HUB_STATE.AnimationTimeAccumulator, 6.0)
+                    local bv = d:FindFirstChild("DiceForce")
+                    if bv then bv.Velocity = ((rPos + offset) - d.Position) * 22 end
+                end
+                for i, d in ipairs(DiceStorage.LeftSphere) do
+                    local offset = CalculateSpherePointOffset(i, #DiceStorage.LeftSphere, 4.0, HUB_STATE.AnimationTimeAccumulator, 6.0)
+                    local bv = d:FindFirstChild("DiceForce")
+                    if bv then bv.Velocity = ((lPos + offset) - d.Position) * 22 end
+                end
+            elseif SpecialAnim.Timer <= 3.5 then
+                local flyTime = SpecialAnim.Timer - 1.8
+                local currentFlyPos = frontCenter + (SpecialAnim.FlyDir * 300 * flyTime)
+                for i, d in ipairs(DiceStorage.All) do
+                    if d and d.Parent then
+                        DiceStorage.ColorMap[d] = COLORS.PURPLE
+                        local offset = CalculateSpherePointOffset(i, #DiceStorage.All, 5.5, HUB_STATE.AnimationTimeAccumulator, 12.0)
+                        local targetPos = currentFlyPos + offset
+                        local bv = d:FindFirstChild("DiceForce")
+                        if bv then bv.Velocity = (targetPos - d.Position) * 40 end
+                    end
+                end
+            else
+                HUB_STATE.IsAnimating = false
+                SpecialAnim.Type = "NONE"
+            end
+            return
+
+        elseif SpecialAnim.Type == "PURPLE_MERGE" then
+            local progress = math.clamp(SpecialAnim.Timer / 1.5, 0, 1)
+            for _, d in ipairs(DiceStorage.RightSphere) do DiceStorage.ColorMap[d] = COLORS.RED:Lerp(COLORS.PURPLE, progress) end
+            for _, d in ipairs(DiceStorage.LeftSphere) do DiceStorage.ColorMap[d] = COLORS.BLUE:Lerp(COLORS.PURPLE, progress) end
+            local rPos = rightCenter:Lerp(frontCenter, progress)
+            local lPos = leftCenter:Lerp(frontCenter, progress)
+            for i, d in ipairs(DiceStorage.RightSphere) do
+                local offset = CalculateSpherePointOffset(i, #DiceStorage.RightSphere, 4.5, HUB_STATE.AnimationTimeAccumulator)
+                local bv = d:FindFirstChild("DiceForce")
+                if bv then bv.Velocity = ((rPos + offset) - d.Position) * 20 end
+            end
+            for i, d in ipairs(DiceStorage.LeftSphere) do
+                local offset = CalculateSpherePointOffset(i, #DiceStorage.LeftSphere, 4.5, HUB_STATE.AnimationTimeAccumulator)
+                local bv = d:FindFirstChild("DiceForce")
+                if bv then bv.Velocity = ((lPos + offset) - d.Position) * 20 end
+            end
+            return
+
+        elseif SpecialAnim.Type == "BLUE_BURST" then
+            if SpecialAnim.Timer <= 2.5 then
+                local angle = (SpecialAnim.Timer / 2.5) * math.pi * 2
+                local orbitPos = root.Position + Vector3.new(math.cos(angle) * 10, 2 + HUB_STATE.SphereHeightOffset, math.sin(angle) * 10)
+                for i, d in ipairs(DiceStorage.All) do
+                    if d and d.Parent then
+                        local offset = CalculateSpherePointOffset(i, #DiceStorage.All, 5.0, HUB_STATE.AnimationTimeAccumulator, 10.0)
+                        local targetPos = orbitPos + offset
+                        local bv = d:FindFirstChild("DiceForce")
+                        if bv then bv.Velocity = (targetPos - d.Position) * 30 end
+                    end
+                end
+            elseif SpecialAnim.Timer <= 4.5 then
+                local burstTime = SpecialAnim.Timer - 2.5
+                for _, d in ipairs(DiceStorage.All) do
+                    if d and d.Parent then
+                        local dir = SpecialAnim.BurstDirections[d] or Vector3.new(0, 1, 0)
+                        local bv = d:FindFirstChild("DiceForce")
+                        if bv then bv.Velocity = dir * (200 + (burstTime * 50)) end
+                    end
+                end
+            else
+                HUB_STATE.IsAnimating = false
+                SpecialAnim.Type = "NONE"
+            end
+            return
+
+        elseif SpecialAnim.Type == "RED_SHOOT" then
+            if SpecialAnim.Timer <= 2.0 then
+                for i, d in ipairs(DiceStorage.All) do
+                    if d and d.Parent then
+                        local offset = CalculateSpherePointOffset(i, #DiceStorage.All, 4.0, HUB_STATE.AnimationTimeAccumulator, 8.0)
+                        local targetPos = frontCenter + offset
+                        local bv = d:FindFirstChild("DiceForce")
+                        if bv then bv.Velocity = (targetPos - d.Position) * 25 end
+                    end
+                end
+            elseif SpecialAnim.Timer <= 3.5 then
+                local flyTime = SpecialAnim.Timer - 2.0
+                local currentFlyPos = frontCenter + (SpecialAnim.FlyDir * 250 * flyTime)
+                for i, d in ipairs(DiceStorage.All) do
+                    if d and d.Parent then
+                        local offset = CalculateSpherePointOffset(i, #DiceStorage.All, 4.0, HUB_STATE.AnimationTimeAccumulator, 8.0)
+                        local targetPos = currentFlyPos + offset
+                        local bv = d:FindFirstChild("DiceForce")
+                        if bv then bv.Velocity = (targetPos - d.Position) * 35 end
+                    end
+                end
+            else
+                HUB_STATE.IsAnimating = false
+                SpecialAnim.Type = "NONE"
+            end
+            return
+
+        elseif SpecialAnim.Type == "BLACK_HOLE" then
+            for i, d in ipairs(DiceStorage.All) do
+                if d and d.Parent then
+                    local offset = CalculateSpherePointOffset(i, #DiceStorage.All, 4.5, HUB_STATE.AnimationTimeAccumulator, 8.0)
+                    local targetPos = headCenter + offset
+                    local bv = d:FindFirstChild("DiceForce")
+                    if bv then bv.Velocity = (targetPos - d.Position) * 25 end
+                end
+            end
+            return
+        end
+    end
+
+    -- 通常時（左右球体配置）
+    local radius = HUB_STATE.SphereRadiusNormal
+    for i, d in ipairs(DiceStorage.RightSphere) do
+        if d and d.Parent then
+            local offset = CalculateSpherePointOffset(i, #DiceStorage.RightSphere, radius, HUB_STATE.AnimationTimeAccumulator)
+            local targetPos = rightCenter + offset
+            local bv = d:FindFirstChild("DiceForce")
+            local bg = d:FindFirstChild("DiceGyro")
+            if bv then bv.Velocity = (targetPos - d.Position) * 20 end
+            if bg then bg.CFrame = CFrame.new(d.Position, targetPos) * CFrame.Angles(HUB_STATE.AnimationTimeAccumulator * HUB_STATE.DiceRotationSpeed, 0, 0) end
+        end
+    end
+    for i, d in ipairs(DiceStorage.LeftSphere) do
+        if d and d.Parent then
+            local offset = CalculateSpherePointOffset(i, #DiceStorage.LeftSphere, radius, HUB_STATE.AnimationTimeAccumulator)
+            local targetPos = leftCenter + offset
+            local bv = d:FindFirstChild("DiceForce")
+            local bg = d:FindFirstChild("DiceGyro")
+            if bv then bv.Velocity = (targetPos - d.Position) * 20 end
+            if bg then bg.CFrame = CFrame.new(d.Position, targetPos) * CFrame.Angles(HUB_STATE.AnimationTimeAccumulator * HUB_STATE.DiceRotationSpeed, 0, 0) end
+        end
+    end
+end)
+
+-- 9. ネットワーク同期タスク
+task.spawn(function()
+    while true do
+        CleanupDiceDatabase()
+        for _, d in ipairs(DiceStorage.All) do
+            if d and d.Parent then
+                local targetColor = DiceStorage.ColorMap[d] or COLORS.DEFAULT
+                local seq = ColorSequence.new(targetColor)
+                if UpdateLineColorsEvent then
+                    pcall(function() UpdateLineColorsEvent:FireServer(seq, targetColor, targetColor, targetColor, targetColor, targetColor, targetColor, targetColor, targetColor, targetColor) end)
+                end
+                if SetNetworkOwnerEvent then
+                    pcall(function() SetNetworkOwnerEvent:FireServer(d, d.CFrame) end)
+                end
+            end
+        end
+        task.wait(0.2)
+    end
+end)
+
+-- 10. 起動通知（任意）
+print("🌸 かめはめ波GUI 完全版 起動完了！")
