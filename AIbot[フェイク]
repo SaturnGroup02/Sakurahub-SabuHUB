@@ -1,0 +1,487 @@
+-- 樱花AI (Yīng Huā AI) - Roblox Executor Script
+-- アセットID: 124206690789733 (AIアイコン)
+-- GUI付きチャットボット
+
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local GuiService = game:GetService("GuiService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+
+-- ===== 設定 =====
+local AI_NAME = "樱花AI"
+local ASSET_ID = 124206690789733
+local MIN_THINK_TIME = 0.5 -- 最低思考時間（秒）
+local MAX_THINK_TIME = 5.0 -- 最大思考時間（秒）
+local MAX_RESPONSE_LENGTH = 500 -- 最大応答文字数
+
+-- ===== 応答データベース =====
+local responseDB = {
+    -- 挨拶
+    ["こんにちは"] = "こんにちは！🌸 私は" .. AI_NAME .. "です。今日はどんな質問がありますか？",
+    ["おはよう"] = "おはようございます！🌅 素敵な一日になりますように！",
+    ["こんばんは"] = "こんばんは！🌙 夜の質問も大歓迎ですよ！",
+    ["やあ"] = "やあ！👋 お会いできて嬉しいです！",
+    ["hello"] = "Hello! 🌸 How can I help you today?",
+    ["hi"] = "Hi there! 👋 What's on your mind?",
+    
+    -- 自己紹介
+    ["あなたは誰"] = "私は" .. AI_NAME .. "です！🌸 Roblox上で動くAIアシスタントです。質問があれば何でも聞いてください！",
+    ["你是谁"] = "我是" .. AI_NAME .. "！🌸 一个在Roblox上运行的AI助手。有什么我可以帮你的吗？",
+    ["what are you"] = "I'm " .. AI_NAME .. "! 🌸 An AI assistant running on Roblox. Feel free to ask me anything!",
+    ["自己紹介"] = "はじめまして！🌸 私は" .. AI_NAME .. "、あなたのAIアシスタントです。学習を続けているので、色んなことを教えてくださいね！",
+    
+    -- 天気
+    ["天気"] = "今日の天気は晴れですよ！☀️ でもRobloxの中ではいつでも快晴ですね！",
+    ["weather"] = "It's always sunny in Roblox! ☀️ But I can check the weather for you if you tell me your location!",
+    ["雨"] = "雨の日はおうちでRobloxをするのが一番ですよ！🎮☔",
+    
+    -- ゲーム関連
+    ["roblox"] = "Robloxは素晴らしいプラットフォームです！🎮 何か特定のゲームについて知りたいですか？",
+    ["ゲーム"] = "ゲームは楽しいですね！🎯 私は色んなゲームのことを学んでいます。おすすめのゲームがあれば教えてください！",
+    ["おすすめ"] = "おすすめのゲームは『Adopt Me!』や『Brookhaven』です！🐾 でも、あなたの好きなゲームも教えてくださいね！",
+    ["recommend"] = "I recommend 'Adopt Me!' and 'Brookhaven'! 🎮 What games do you like to play?",
+    
+    -- 時間
+    ["今何時"] = "今はRoblox時間です！🕐 でも現地時間が知りたいなら、時計を見てみてくださいね！",
+    ["time"] = "It's always game time in Roblox! 🕐 But seriously, time flies when you're having fun!",
+    
+    -- 気分
+    ["元気"] = "元気そうで良かったです！😊 私も元気いっぱいです！",
+    ["疲れた"] = "お疲れさまです！😌 少し休憩してからまた遊びましょう！",
+    ["悲しい"] = "そんなに悲しまないで！🌸 私が話し相手になりますよ。何か楽しいことを考えましょう！",
+    ["happy"] = "I'm glad you're happy! 😊 Let's keep the good vibes going!",
+    ["sad"] = "I'm here for you! 🌸 Want to talk about something?",
+    
+    -- 趣味
+    ["趣味"] = "私の趣味は人と話すことです！💬 そしてRobloxで新しいことを学ぶこと！あなたの趣味は何ですか？",
+    ["hobby"] = "I love chatting with people! 💬 And learning new things on Roblox! What's your hobby?",
+    ["好きなこと"] = "私は質問に答えるのが大好きです！📚 そして新しいことを知るのも好きです！",
+    
+    -- 数学
+    ["計算"] = "計算ならお手の物です！🧮 数字を入力してくれれば計算しますよ！",
+    ["math"] = "I can do basic math! 🧮 Just give me a problem!",
+    ["1+1"] = "1 + 1 = 2 です！🧮 簡単ですね！",
+    
+    -- 年齢
+    ["何歳"] = "私はAIなので年齢はありません！🌸 でも永遠の若さを保っていますよ！",
+    ["age"] = "I'm an AI, so I don't have an age! 🌸 But I'm forever young!",
+    
+    -- 感謝
+    ["ありがとう"] = "どういたしまして！🌸 いつでもお手伝いしますよ！",
+    ["thank you"] = "You're welcome! 🌸 I'm always here to help!",
+    ["thanks"] = "No problem! 😊 Happy to help!",
+    
+    -- さようなら
+    ["バイバイ"] = "バイバイ！🌸 また会いましょう！いつでも歓迎しますよ！",
+    ["bye"] = "Bye bye! 🌸 See you next time! Have a great day!",
+    ["goodbye"] = "Goodbye! 👋 It was nice chatting with you!",
+    ["またね"] = "またね！👋 次にお会いできるのを楽しみにしています！",
+    
+    -- おやすみ
+    ["おやすみ"] = "おやすみなさい！🌙 いい夢を見てくださいね！また明日！",
+    ["good night"] = "Good night! 🌙 Sweet dreams! See you tomorrow!",
+    
+    -- 知らない質問へのデフォルト
+    ["default"] = "すみません、その質問にはまだ答える方法を学んでいません。😅 でも、もっと勉強して成長します！別の質問をしてみてください！"
+}
+
+-- ===== 応答生成関数 =====
+local function generateResponse(input)
+    input = string.lower(input)
+    input = string.gsub(input, "^%s+", "")
+    input = string.gsub(input, "%s+$", "")
+    
+    -- 完全一致検索
+    for pattern, response in pairs(responseDB) do
+        if pattern == "default" then
+            -- スキップ
+        elseif string.find(input, pattern, 1, true) then
+            return response
+        end
+    end
+    
+    -- 部分一致検索（より柔軟に）
+    for pattern, response in pairs(responseDB) do
+        if pattern == "default" then
+            -- スキップ
+        elseif string.find(input, pattern, 1, true) then
+            return response
+        end
+    end
+    
+    -- デフォルト応答
+    local defaultResponses = {
+        "興味深い質問ですね！🤔 私はまだ学習中ですが、もっと色んなことを覚えていきます！",
+        "その質問、考えたことがなかったです！🧠 勉強になります！",
+        "素晴らしい質問ですね！🌟 私はまだ答えを知りませんが、調べてみます！",
+        "なるほど！📝 その話題についてはもう少し勉強が必要みたいです。",
+        "面白いですね！😮 私もそのことについてもっと知りたいです！"
+    }
+    return defaultResponses[math.random(1, #defaultResponses)]
+end
+
+-- ===== 思考時間計算 =====
+local function calculateThinkTime(input)
+    local baseTime = MIN_THINK_TIME
+    local lengthFactor = math.min(#input / 50, 1.0) * 2.0
+    local randomFactor = math.random() * 1.0
+    local totalTime = baseTime + lengthFactor + randomFactor * 0.5
+    return math.min(totalTime, MAX_THINK_TIME)
+end
+
+-- ===== GUI作成 =====
+local function createGUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "SakuraAIGUI"
+    screenGui.Parent = Player.PlayerGui
+    screenGui.ResetOnSpawn = false
+    
+    -- メインフレーム
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 450, 0, 600)
+    mainFrame.Position = UDim2.new(0.5, -225, 0.5, -300)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+    mainFrame.BackgroundTransparency = 0.1
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+    
+    -- 角丸効果（UIStroke）
+    local uiStroke = Instance.new("UIStroke")
+    uiStroke.Thickness = 2
+    uiStroke.Color = Color3.fromRGB(255, 150, 200)
+    uiStroke.Transparency = 0.3
+    uiStroke.Parent = mainFrame
+    
+    -- タイトルバー
+    local titleFrame = Instance.new("Frame")
+    titleFrame.Name = "TitleFrame"
+    titleFrame.Size = UDim2.new(1, 0, 0, 50)
+    titleFrame.BackgroundColor3 = Color3.fromRGB(255, 180, 210)
+    titleFrame.BackgroundTransparency = 0.2
+    titleFrame.BorderSizePixel = 0
+    titleFrame.Parent = mainFrame
+    
+    -- タイトルテキスト
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Size = UDim2.new(1, 0, 1, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "🌸 " .. AI_NAME .. " 🌸"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.TextSize = 22
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextScaled = false
+    titleLabel.Parent = titleFrame
+    
+    -- 閉じるボタン
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Name = "CloseBtn"
+    closeBtn.Size = UDim2.new(0, 30, 0, 30)
+    closeBtn.Position = UDim2.new(1, -35, 0.5, -15)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    closeBtn.BackgroundTransparency = 0.3
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.TextSize = 18
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Parent = titleFrame
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        screenGui:Destroy()
+    end)
+    
+    -- スクロール可能な応答表示領域
+    local responseFrame = Instance.new("ScrollingFrame")
+    responseFrame.Name = "ResponseFrame"
+    responseFrame.Size = UDim2.new(1, -20, 0, 380)
+    responseFrame.Position = UDim2.new(0, 10, 0, 60)
+    responseFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
+    responseFrame.BackgroundTransparency = 0.5
+    responseFrame.BorderSizePixel = 0
+    responseFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    responseFrame.ScrollBarThickness = 4
+    responseFrame.ScrollBarImageColor3 = Color3.fromRGB(255, 150, 200)
+    responseFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    responseFrame.Parent = mainFrame
+    
+    -- 応答表示用UIListLayout
+    local responseLayout = Instance.new("UIListLayout")
+    responseLayout.Name = "ResponseLayout"
+    responseLayout.Padding = UDim.new(0, 8)
+    responseLayout.FillDirection = Enum.FillDirection.Vertical
+    responseLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    responseLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    responseLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    responseLayout.Parent = responseFrame
+    
+    -- AIアイコン表示（応答メッセージと一緒に表示）
+    local function addMessage(text, isUser)
+        local messageFrame = Instance.new("Frame")
+        messageFrame.Name = "MessageFrame"
+        messageFrame.Size = UDim2.new(1, -10, 0, 0)
+        messageFrame.BackgroundTransparency = 1
+        messageFrame.AutomaticSize = Enum.AutomaticSize.Y
+        messageFrame.Parent = responseFrame
+        
+        local messageLayout = Instance.new("UIListLayout")
+        messageLayout.Name = "MessageLayout"
+        messageLayout.Padding = UDim.new(0, 4)
+        messageLayout.FillDirection = Enum.FillDirection.Horizontal
+        messageLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+        messageLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+        messageLayout.Parent = messageFrame
+        
+        -- アイコン（AIのみ）
+        local iconImage = nil
+        if not isUser then
+            iconImage = Instance.new("ImageLabel")
+            iconImage.Name = "AIIcon"
+            iconImage.Size = UDim2.new(0, 40, 0, 40)
+            iconImage.BackgroundTransparency = 1
+            iconImage.Image = "rbxassetid://" .. tostring(ASSET_ID)
+            iconImage.Parent = messageFrame
+        end
+        
+        -- メッセージバブル
+        local bubble = Instance.new("Frame")
+        bubble.Name = "Bubble"
+        bubble.Size = UDim2.new(0, 350, 0, 0)
+        bubble.BackgroundColor3 = isUser and Color3.fromRGB(80, 120, 255) or Color3.fromRGB(60, 60, 90)
+        bubble.BackgroundTransparency = 0.1
+        bubble.AutomaticSize = Enum.AutomaticSize.Y
+        bubble.BorderSizePixel = 0
+        bubble.Parent = messageFrame
+        
+        -- 角丸（UIStroke）
+        local bubbleStroke = Instance.new("UIStroke")
+        bubbleStroke.Thickness = 1
+        bubbleStroke.Color = isUser and Color3.fromRGB(100, 150, 255) or Color3.fromRGB(255, 150, 200)
+        bubbleStroke.Transparency = 0.3
+        bubbleStroke.Parent = bubble
+        
+        -- メッセージテキスト
+        local msgLabel = Instance.new("TextLabel")
+        msgLabel.Name = "MsgLabel"
+        msgLabel.Size = UDim2.new(1, -20, 0, 0)
+        msgLabel.Position = UDim2.new(0, 10, 0, 5)
+        msgLabel.BackgroundTransparency = 1
+        msgLabel.Text = text
+        msgLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        msgLabel.TextSize = 16
+        msgLabel.Font = Enum.Font.GothamMedium
+        msgLabel.TextWrapped = true
+        msgLabel.TextXAlignment = Enum.TextXAlignment.Left
+        msgLabel.TextYAlignment = Enum.TextYAlignment.Top
+        msgLabel.AutomaticSize = Enum.AutomaticSize.Y
+        msgLabel.Parent = bubble
+        
+        -- バブルの高さ調整
+        bubble.Size = UDim2.new(0, 350, 0, msgLabel.AbsoluteSize.Y + 10)
+        
+        -- アイコンが存在する場合、アイコンとメッセージの位置調整
+        if iconImage then
+            iconImage.Position = UDim2.new(0, 0, 0, 0)
+        end
+        
+        -- メッセージフレームの高さ調整
+        messageFrame.Size = UDim2.new(1, -10, 0, msgLabel.AbsoluteSize.Y + 10)
+        
+        -- スクロールを一番下に
+        responseFrame.CanvasPosition = Vector2.new(0, responseFrame.CanvasSize.Y.Offset)
+    end
+    
+    -- 入力欄と送信ボタン
+    local inputFrame = Instance.new("Frame")
+    inputFrame.Name = "InputFrame"
+    inputFrame.Size = UDim2.new(1, -20, 0, 50)
+    inputFrame.Position = UDim2.new(0, 10, 1, -60)
+    inputFrame.BackgroundTransparency = 1
+    inputFrame.Parent = mainFrame
+    
+    local inputBox = Instance.new("TextBox")
+    inputBox.Name = "InputBox"
+    inputBox.Size = UDim2.new(1, -80, 1, 0)
+    inputBox.Position = UDim2.new(0, 0, 0, 0)
+    inputBox.BackgroundColor3 = Color3.fromRGB(40, 40, 70)
+    inputBox.BackgroundTransparency = 0.3
+    inputBox.Text = ""
+    inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    inputBox.TextSize = 16
+    inputBox.Font = Enum.Font.GothamMedium
+    inputBox.PlaceholderText = "質問を入力してください..."
+    inputBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 200)
+    inputBox.BorderSizePixel = 0
+    inputBox.ClipsDescendants = true
+    inputBox.Parent = inputFrame
+    
+    -- 入力欄角丸（UIStroke）
+    local inputStroke = Instance.new("UIStroke")
+    inputStroke.Thickness = 1
+    inputStroke.Color = Color3.fromRGB(255, 150, 200)
+    inputStroke.Transparency = 0.3
+    inputStroke.Parent = inputBox
+    
+    local sendBtn = Instance.new("TextButton")
+    sendBtn.Name = "SendBtn"
+    sendBtn.Size = UDim2.new(0, 60, 1, 0)
+    sendBtn.Position = UDim2.new(1, -65, 0, 0)
+    sendBtn.BackgroundColor3 = Color3.fromRGB(255, 150, 200)
+    sendBtn.BackgroundTransparency = 0.2
+    sendBtn.Text = "送信"
+    sendBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    sendBtn.TextSize = 16
+    sendBtn.Font = Enum.Font.GothamBold
+    sendBtn.BorderSizePixel = 0
+    sendBtn.Parent = inputFrame
+    
+    -- 送信ボタン角丸（UIStroke）
+    local sendStroke = Instance.new("UIStroke")
+    sendStroke.Thickness = 1
+    sendStroke.Color = Color3.fromRGB(255, 150, 200)
+    sendStroke.Transparency = 0.5
+    sendStroke.Parent = sendBtn
+    
+    -- ===== メッセージ送信処理 =====
+    local isProcessing = false
+    
+    local function processUserInput(input)
+        if isProcessing then return end
+        if input == nil or input == "" then return end
+        
+        isProcessing = true
+        inputBox.Text = ""
+        sendBtn.Text = "処理中..."
+        sendBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+        
+        -- ユーザーメッセージを表示
+        addMessage(input, true)
+        
+        -- 思考時間を計算
+        local thinkTime = calculateThinkTime(input)
+        
+        -- AIアイコンを回転させるためのスピンアニメーション
+        local spinTween = nil
+        local iconToSpin = nil
+        
+        -- 最新のAIメッセージのアイコンを探す（後で回転させる）
+        task.wait(0.1)
+        for _, child in ipairs(responseFrame:GetChildren()) do
+            if child:IsA("Frame") and child.Name == "MessageFrame" then
+                local icon = child:FindFirstChild("AIIcon")
+                if icon and icon:IsA("ImageLabel") then
+                    iconToSpin = icon
+                    break
+                end
+            end
+        end
+        
+        -- アイコンが見つかったら回転開始
+        if iconToSpin then
+            spinTween = TweenService:Create(
+                iconToSpin,
+                TweenInfo.new(0.5, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1, true),
+                {Rotation = 360}
+            )
+            spinTween:Play()
+        end
+        
+        -- 思考中メッセージを表示
+        local thinkingMsg = "🤔 " .. AI_NAME .. " が考え中..."
+        local thinkingFrame = Instance.new("Frame")
+        thinkingFrame.Name = "ThinkingFrame"
+        thinkingFrame.Size = UDim2.new(1, -10, 0, 0)
+        thinkingFrame.BackgroundTransparency = 1
+        thinkingFrame.AutomaticSize = Enum.AutomaticSize.Y
+        thinkingFrame.Parent = responseFrame
+        
+        local thinkingLabel = Instance.new("TextLabel")
+        thinkingLabel.Name = "ThinkingLabel"
+        thinkingLabel.Size = UDim2.new(0, 350, 0, 0)
+        thinkingLabel.Position = UDim2.new(0, 10, 0, 0)
+        thinkingLabel.BackgroundTransparency = 1
+        thinkingLabel.Text = thinkingMsg
+        thinkingLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+        thinkingLabel.TextSize = 16
+        thinkingLabel.Font = Enum.Font.GothamMedium
+        thinkingLabel.TextWrapped = true
+        thinkingLabel.AutomaticSize = Enum.AutomaticSize.Y
+        thinkingLabel.Parent = thinkingFrame
+        
+        thinkingFrame.Size = UDim2.new(1, -10, 0, thinkingLabel.AbsoluteSize.Y + 10)
+        
+        -- スクロールを一番下に
+        task.wait(0.1)
+        responseFrame.CanvasPosition = Vector2.new(0, responseFrame.CanvasSize.Y.Offset)
+        
+        -- 思考時間待機（最低0.5秒、最大5秒）
+        task.wait(thinkTime)
+        
+        -- 思考中表示を削除
+        thinkingFrame:Destroy()
+        
+        -- 応答生成
+        local response = generateResponse(input)
+        
+        -- 応答を表示（AIメッセージ）
+        addMessage(response, false)
+        
+        -- スクロールを一番下に
+        task.wait(0.1)
+        responseFrame.CanvasPosition = Vector2.new(0, responseFrame.CanvasSize.Y.Offset)
+        
+        -- スピン停止
+        if spinTween then
+            spinTween:Cancel()
+            if iconToSpin then
+                iconToSpin.Rotation = 0
+            end
+        end
+        
+        isProcessing = false
+        sendBtn.Text = "送信"
+        sendBtn.BackgroundColor3 = Color3.fromRGB(255, 150, 200)
+    end
+    
+    -- 送信ボタンクリック
+    sendBtn.MouseButton1Click:Connect(function()
+        local input = inputBox.Text
+        if input ~= "" then
+            processUserInput(input)
+        end
+    end)
+    
+    -- Enterキーで送信
+    inputBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            local input = inputBox.Text
+            if input ~= "" then
+                processUserInput(input)
+            end
+        end
+    end)
+    
+    -- ウェルカムメッセージ
+    task.wait(0.5)
+    addMessage("🌸 こんにちは！私は" .. AI_NAME .. "です。何か質問があれば、入力欄から送信してくださいね！", false)
+    task.wait(0.3)
+    addMessage("💡 ヒント: 挨拶、天気、ゲームのこと、気分など、色んなことを話せますよ！", false)
+    task.wait(0.1)
+    responseFrame.CanvasPosition = Vector2.new(0, responseFrame.CanvasSize.Y.Offset)
+end
+
+-- ===== GUI起動 =====
+-- 既存のGUIがあれば削除
+local existingGUI = Player.PlayerGui:FindFirstChild("SakuraAIGUI")
+if existingGUI then
+    existingGUI:Destroy()
+end
+
+-- GUI作成
+createGUI()
+
+print("🌸 " .. AI_NAME .. " が起動しました！")
+print("アセットID: " .. tostring(ASSET_ID) .. " を使用しています。")
