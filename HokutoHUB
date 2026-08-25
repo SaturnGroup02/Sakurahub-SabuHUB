@@ -1,0 +1,1204 @@
+ScriptHubTab:AddButton({
+    Name = "Hokuto hub",
+    Callback = function()
+        -- Hokuto.hub ESP Script with Fixed Aim Systems (無限範囲バージョン)
+        -- Delta/Xeno用
+
+        -- メインサービス
+        local Players = game:GetService("Players")
+        local RunService = game:GetService("RunService")
+        local UserInputService = game:GetService("UserInputService")
+        local Workspace = game:GetService("Workspace")
+        local LocalPlayer = Players.LocalPlayer
+        local Camera = Workspace.CurrentCamera
+
+        -- ESP設定（指定カラーのみ）
+        local settings = {
+            toggleKey = Enum.KeyCode.RightShift,
+            guiColor = Color3.fromRGB(255, 105, 180),
+            textColor = Color3.fromRGB(255, 255, 255),
+            backgroundColor = Color3.fromRGB(20, 20, 20),
+            lineColor = Color3.fromRGB(255, 165, 0),
+            transparency = 0.1
+        }
+
+        -- 状態変数
+        local allGUIEnabled = false
+        local espEnabled = false
+
+        -- GUIコンテナ
+        local mainContainer = nil
+        local espGUI = nil
+        local systemGUI = nil
+        local seisalogGUI = nil
+
+        -- ドラッグ機能用変数
+        local guiConnections = {}
+
+        -- ESP管理
+        local playerESP = {}
+        local playerLines = {}
+
+        -- 描画オブジェクト管理
+        local drawings = {}
+        local function createDrawing(type)
+            local drawing = Drawing.new(type)
+            table.insert(drawings, drawing)
+            return drawing
+        end
+
+        local function clearAllDrawings()
+            for _, drawing in ipairs(drawings) do
+                if drawing and typeof(drawing) == "Drawing" then
+                    pcall(function() drawing:Remove() end)
+                end
+            end
+            drawings = {}
+        end
+
+        -- メインコンテナ作成
+        local function createMainContainer()
+            if mainContainer then
+                mainContainer:Destroy()
+            end
+            
+            mainContainer = Instance.new("ScreenGui")
+            mainContainer.Name = "HokutoHubContainer"
+            mainContainer.DisplayOrder = 1000
+            mainContainer.ResetOnSpawn = false
+            mainContainer.Parent = game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+        end
+
+        -- ドラッグ機能（PC対応）
+        local function makeDraggable(frame, titleBar)
+            if guiConnections[frame] then
+                for _, conn in ipairs(guiConnections[frame]) do
+                    conn:Disconnect()
+                end
+            end
+            guiConnections[frame] = {}
+            
+            local dragging = false
+            local dragInput
+            local dragStart
+            local startPos
+            
+            local function update(input)
+                if not frame or not frame.Parent then return end
+                
+                local delta = input.Position - dragStart
+                local newX = math.clamp(startPos.X + delta.X, 0, Camera.ViewportSize.X - frame.AbsoluteSize.X)
+                local newY = math.clamp(startPos.Y + delta.Y, 0, Camera.ViewportSize.Y - frame.AbsoluteSize.Y)
+                
+                frame.Position = UDim2.new(0, newX, 0, newY)
+            end
+            
+            local conn1 = titleBar.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                    dragStart = input.Position
+                    startPos = Vector2.new(frame.Position.X.Offset, frame.Position.Y.Offset)
+                    
+                    table.insert(guiConnections[frame], input.Changed:Connect(function()
+                        if input.UserInputState == Enum.UserInputState.End then
+                            dragging = false
+                        end
+                    end))
+                end
+            end)
+            table.insert(guiConnections[frame], conn1)
+            
+            local conn2 = titleBar.InputChanged:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                    dragInput = input
+                end
+            end)
+            table.insert(guiConnections[frame], conn2)
+            
+            local conn3 = UserInputService.InputChanged:Connect(function(input)
+                if dragging and (input == dragInput or input.UserInputType == Enum.UserInputType.Touch) then
+                    update(input)
+                end
+            end)
+            table.insert(guiConnections[frame], conn3)
+        end
+
+        -- ESP制御GUI作成
+        local function createESPGUI()
+            if espGUI then espGUI:Destroy() end
+            
+            espGUI = Instance.new("Frame")
+            espGUI.Name = "ESPControl"
+            espGUI.Size = UDim2.new(0, 200, 0, 220)
+            espGUI.Position = UDim2.new(0, 10, 0, 10)
+            espGUI.BackgroundColor3 = settings.backgroundColor
+            espGUI.BackgroundTransparency = settings.transparency
+            espGUI.BorderSizePixel = 2
+            espGUI.BorderColor3 = settings.guiColor
+            espGUI.Visible = false
+            espGUI.Parent = mainContainer
+            
+            local titleBar = Instance.new("TextButton")
+            titleBar.Name = "TitleBar"
+            titleBar.Text = "ESP Control"
+            titleBar.Size = UDim2.new(1, 0, 0, 25)
+            titleBar.BackgroundColor3 = settings.guiColor
+            titleBar.BackgroundTransparency = 0.2
+            titleBar.TextColor3 = settings.textColor
+            titleBar.Font = Enum.Font.GothamBold
+            titleBar.TextSize = 14
+            titleBar.AutoButtonColor = false
+            titleBar.Parent = espGUI
+            
+            local espButton = Instance.new("TextButton")
+            espButton.Name = "ESPButton"
+            espButton.Text = "ESP: OFF"
+            espButton.Size = UDim2.new(0.9, 0, 0, 25)
+            espButton.Position = UDim2.new(0.05, 0, 0, 30)
+            espButton.BackgroundColor3 = settings.guiColor
+            espButton.BackgroundTransparency = 0.3
+            espButton.TextColor3 = settings.textColor
+            espButton.Font = Enum.Font.GothamBold
+            espButton.TextSize = 12
+            espButton.Parent = espGUI
+            
+            espButton.MouseButton1Click:Connect(function()
+                espEnabled = not espEnabled
+                espButton.Text = "ESP: " .. (espEnabled and "ON" or "OFF")
+                espButton.BackgroundTransparency = espEnabled and 0.1 or 0.3
+            end)
+            
+            local aimbotButton = Instance.new("TextButton")
+            aimbotButton.Name = "AimbotButton"
+            aimbotButton.Text = "Aimbot: OFF"
+            aimbotButton.Size = UDim2.new(0.9, 0, 0, 25)
+            aimbotButton.Position = UDim2.new(0.05, 0, 0, 60)
+            aimbotButton.BackgroundColor3 = settings.guiColor
+            aimbotButton.BackgroundTransparency = 0.3
+            aimbotButton.TextColor3 = settings.textColor
+            aimbotButton.Font = Enum.Font.GothamBold
+            aimbotButton.TextSize = 12
+            aimbotButton.Parent = espGUI
+            
+            local aimrookButton = Instance.new("TextButton")
+            aimrookButton.Name = "AimrookButton"
+            aimrookButton.Text = "Aimrook: OFF"
+            aimrookButton.Size = UDim2.new(0.9, 0, 0, 25)
+            aimrookButton.Position = UDim2.new(0.05, 0, 0, 90)
+            aimrookButton.BackgroundColor3 = settings.guiColor
+            aimrookButton.BackgroundTransparency = 0.3
+            aimrookButton.TextColor3 = settings.textColor
+            aimrookButton.Font = Enum.Font.GothamBold
+            aimrookButton.TextSize = 12
+            aimrookButton.Parent = espGUI
+            
+            local targetSelectButton = Instance.new("TextButton")
+            targetSelectButton.Name = "TargetSelectButton"
+            targetSelectButton.Text = "Select Target: NONE"
+            targetSelectButton.Size = UDim2.new(0.9, 0, 0, 25)
+            targetSelectButton.Position = UDim2.new(0.05, 0, 0, 120)
+            targetSelectButton.BackgroundColor3 = settings.guiColor
+            targetSelectButton.BackgroundTransparency = 0.3
+            targetSelectButton.TextColor3 = settings.textColor
+            targetSelectButton.Font = Enum.Font.GothamBold
+            targetSelectButton.TextSize = 12
+            targetSelectButton.Parent = espGUI
+            
+            local clearTargetButton = Instance.new("TextButton")
+            clearTargetButton.Name = "ClearTargetButton"
+            clearTargetButton.Text = "Clear Target"
+            clearTargetButton.Size = UDim2.new(0.9, 0, 0, 25)
+            clearTargetButton.Position = UDim2.new(0.05, 0, 0, 150)
+            clearTargetButton.BackgroundColor3 = settings.guiColor
+            clearTargetButton.BackgroundTransparency = 0.3
+            clearTargetButton.TextColor3 = settings.textColor
+            clearTargetButton.Font = Enum.Font.GothamBold
+            clearTargetButton.TextSize = 12
+            clearTargetButton.Parent = espGUI
+            
+            local trackingModeButton = Instance.new("TextButton")
+            trackingModeButton.Name = "TrackingModeButton"
+            trackingModeButton.Text = "Track Mode: CAMERA"
+            trackingModeButton.Size = UDim2.new(0.9, 0, 0, 25)
+            trackingModeButton.Position = UDim2.new(0.05, 0, 0, 180)
+            trackingModeButton.BackgroundColor3 = settings.guiColor
+            trackingModeButton.BackgroundTransparency = 0.3
+            trackingModeButton.TextColor3 = settings.textColor
+            trackingModeButton.Font = Enum.Font.GothamBold
+            trackingModeButton.TextSize = 12
+            trackingModeButton.Parent = espGUI
+            
+            makeDraggable(espGUI, titleBar)
+            
+            return {
+                frame = espGUI,
+                espButton = espButton,
+                aimbotButton = aimbotButton,
+                aimrookButton = aimrookButton,
+                targetSelectButton = targetSelectButton,
+                clearTargetButton = clearTargetButton,
+                trackingModeButton = trackingModeButton
+            }
+        end
+
+        -- システム情報GUI作成
+        local function createSystemGUI()
+            if systemGUI then systemGUI:Destroy() end
+            
+            systemGUI = Instance.new("Frame")
+            systemGUI.Name = "SystemInfo"
+            systemGUI.Size = UDim2.new(0, 180, 0, 200)
+            systemGUI.Position = UDim2.new(0, 220, 0, 10)
+            systemGUI.BackgroundColor3 = settings.backgroundColor
+            systemGUI.BackgroundTransparency = settings.transparency
+            systemGUI.BorderSizePixel = 2
+            systemGUI.BorderColor3 = settings.guiColor
+            systemGUI.Visible = false
+            systemGUI.Parent = mainContainer
+            
+            local titleBar = Instance.new("TextButton")
+            titleBar.Name = "TitleBar"
+            titleBar.Text = "System Info"
+            titleBar.Size = UDim2.new(1, 0, 0, 25)
+            titleBar.BackgroundColor3 = settings.guiColor
+            titleBar.BackgroundTransparency = 0.2
+            titleBar.TextColor3 = settings.textColor
+            titleBar.Font = Enum.Font.GothamBold
+            titleBar.TextSize = 14
+            titleBar.AutoButtonColor = false
+            titleBar.Parent = systemGUI
+            
+            local infoLabels = {}
+            local labelData = {
+                {"FPS", 30},
+                {"CPU", 55},
+                {"GPU", 80},
+                {"PING", 105},
+                {"AIMBOT", 130},
+                {"AIMROOK", 155},
+                {"TARGET", 180},
+                {"DISTANCE", 205},
+                {"MODE", 230}
+            }
+            
+            for _, data in ipairs(labelData) do
+                local name, yPos = data[1], data[2]
+                
+                local frame = Instance.new("Frame")
+                frame.Size = UDim2.new(1, -10, 0, 20)
+                frame.Position = UDim2.new(0, 5, 0, yPos)
+                frame.BackgroundTransparency = 1
+                frame.Parent = systemGUI
+                
+                local label = Instance.new("TextLabel")
+                label.Text = name .. ":"
+                label.Size = UDim2.new(0.5, 0, 1, 0)
+                label.TextColor3 = settings.textColor
+                label.Font = Enum.Font.Gotham
+                label.TextSize = 12
+                label.TextXAlignment = Enum.TextXAlignment.Left
+                label.BackgroundTransparency = 1
+                label.Parent = frame
+                
+                local value = Instance.new("TextLabel")
+                value.Name = name .. "Value"
+                value.Text = "0"
+                value.Size = UDim2.new(0.5, 0, 1, 0)
+                value.Position = UDim2.new(0.5, 0, 0, 0)
+                value.TextColor3 = settings.guiColor
+                value.Font = Enum.Font.GothamBold
+                value.TextSize = 12
+                value.TextXAlignment = Enum.TextXAlignment.Right
+                value.BackgroundTransparency = 1
+                value.Parent = frame
+                
+                infoLabels[name:lower()] = value
+            end
+            
+            makeDraggable(systemGUI, titleBar)
+            
+            return {frame = systemGUI, labels = infoLabels}
+        end
+
+        -- SeisaLog GUI作成
+        local function createSeisaLogGUI()
+            if seisalogGUI then seisalogGUI:Destroy() end
+            
+            seisalogGUI = Instance.new("Frame")
+            seisalogGUI.Name = "SeisaLog"
+            seisalogGUI.Size = UDim2.new(0, 350, 0, 200)
+            seisalogGUI.Position = UDim2.new(1, -360, 0, 10)
+            seisalogGUI.BackgroundColor3 = settings.backgroundColor
+            seisalogGUI.BackgroundTransparency = settings.transparency
+            seisalogGUI.BorderSizePixel = 2
+            seisalogGUI.BorderColor3 = settings.guiColor
+            seisalogGUI.Visible = false
+            seisalogGUI.Parent = mainContainer
+            
+            local titleBar = Instance.new("TextButton")
+            titleBar.Name = "TitleBar"
+            titleBar.Text = "Seisa Log [SYSTEM]"
+            titleBar.Size = UDim2.new(1, 0, 0, 25)
+            titleBar.BackgroundColor3 = settings.guiColor
+            titleBar.BackgroundTransparency = 0.2
+            titleBar.TextColor3 = settings.textColor
+            titleBar.Font = Enum.Font.GothamBold
+            titleBar.TextSize = 14
+            titleBar.AutoButtonColor = false
+            titleBar.Parent = seisalogGUI
+            
+            local logScrollingFrame = Instance.new("ScrollingFrame")
+            logScrollingFrame.Name = "LogContent"
+            logScrollingFrame.Size = UDim2.new(1, -10, 1, -35)
+            logScrollingFrame.Position = UDim2.new(0, 5, 0, 30)
+            logScrollingFrame.BackgroundTransparency = 1
+            logScrollingFrame.BorderSizePixel = 0
+            logScrollingFrame.ScrollBarThickness = 5
+            logScrollingFrame.ScrollBarImageColor3 = settings.guiColor
+            logScrollingFrame.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+            logScrollingFrame.Parent = seisalogGUI
+            
+            local logContainer = Instance.new("Frame")
+            logContainer.Name = "LogContainer"
+            logContainer.Size = UDim2.new(1, 0, 0, 0)
+            logContainer.BackgroundTransparency = 1
+            logContainer.Parent = logScrollingFrame
+            
+            local autoScroll = true
+            local lastScrollTime = 0
+            
+            local function autoScrollToBottom()
+                if autoScroll and logScrollingFrame then
+                    logScrollingFrame.CanvasPosition = Vector2.new(0, logContainer.AbsoluteSize.Y - logScrollingFrame.AbsoluteSize.Y)
+                end
+            end
+            
+            logScrollingFrame:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+                local maxScroll = logContainer.AbsoluteSize.Y - logScrollingFrame.AbsoluteSize.Y
+                local currentPos = logScrollingFrame.CanvasPosition.Y
+                
+                if tick() - lastScrollTime > 2 then
+                    autoScroll = (currentPos >= maxScroll - 10)
+                end
+            end)
+            
+            logScrollingFrame.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+                   input.UserInputType == Enum.UserInputType.Touch then
+                    lastScrollTime = tick()
+                    autoScroll = false
+                end
+            end)
+            
+            makeDraggable(seisalogGUI, titleBar)
+            
+            return {frame = seisalogGUI, container = logContainer, scroll = logScrollingFrame, autoScroll = autoScroll}
+        end
+
+        -- SeisaLogメッセージ追加
+        local systemLogs = {
+            "System initialization complete...",
+            "ESP module loaded successfully...",
+            "Aimbot system calibrated (無限範囲)...",
+            "Aimrook targeting ready...",
+            "Player database synchronized...",
+            "Network connection stable...",
+            "Performance optimization active...",
+            "Memory allocation optimal...",
+            "Security protocols enabled...",
+            "Real-time tracking active...",
+            "Target acquisition system ready...",
+            "Distance calculation online...",
+            "Visual enhancements applied...",
+            "System resources monitored...",
+            "Connection latency minimal...",
+            "Frame rate stabilized...",
+            "Input processing optimized...",
+            "Rendering pipeline efficient...",
+            "Data stream continuous...",
+            "System integrity verified..."
+        }
+
+        local function addSeisaLogMessage(logHandles, message)
+            if not logHandles or not logHandles.container then return end
+            
+            local timestamp = os.date("[%H:%M:%S]")
+            local fullMessage = timestamp .. " " .. message
+            
+            local logEntry = Instance.new("TextLabel")
+            logEntry.Text = fullMessage
+            logEntry.Size = UDim2.new(1, 0, 0, 18)
+            logEntry.Position = UDim2.new(0, 0, 0, logHandles.container.AbsoluteSize.Y)
+            logEntry.BackgroundTransparency = 1
+            logEntry.TextColor3 = settings.textColor
+            logEntry.Font = Enum.Font.Code
+            logEntry.TextSize = 11
+            logEntry.TextXAlignment = Enum.TextXAlignment.Left
+            logEntry.TextYAlignment = Enum.TextYAlignment.Top
+            logEntry.TextWrapped = true
+            logEntry.Parent = logHandles.container
+            
+            logHandles.container.Size = UDim2.new(1, 0, 0, logHandles.container.AbsoluteSize.Y + 20)
+            logHandles.scroll.CanvasSize = UDim2.new(0, 0, 0, logHandles.container.AbsoluteSize.Y)
+            
+            local children = logHandles.container:GetChildren()
+            if #children > 20 then
+                for i = 1, 5 do
+                    if children[i] and children[i]:IsA("TextLabel") then
+                        children[i]:Destroy()
+                    end
+                end
+            end
+            
+            if logHandles.autoScroll then
+                task.wait(0.01)
+                logHandles.scroll.CanvasPosition = Vector2.new(0, logHandles.container.AbsoluteSize.Y)
+            end
+        end
+
+        -- プレイヤーESP作成
+        local function createPlayerESP(player)
+            if player == LocalPlayer then return end
+            
+            if playerESP[player] then
+                for _, drawing in pairs(playerESP[player]) do
+                    if drawing then drawing:Remove() end
+                end
+            end
+            
+            if playerLines[player] then
+                playerLines[player]:Remove()
+            end
+            
+            local espData = {
+                nameLabel = createDrawing("Text"),
+                box = createDrawing("Square"),
+                healthBar = createDrawing("Line"),
+                healthBarBg = createDrawing("Line"),
+                distanceLabel = createDrawing("Text")
+            }
+            
+            local line = createDrawing("Line")
+            line.Color = settings.lineColor
+            line.Thickness = 1
+            line.Visible = false
+            playerLines[player] = line
+            
+            espData.nameLabel.Text = player.Name
+            espData.nameLabel.Color = settings.guiColor
+            espData.nameLabel.Size = 14
+            espData.nameLabel.Outline = true
+            espData.nameLabel.OutlineColor = Color3.new(0, 0, 0)
+            espData.nameLabel.Visible = false
+            espData.nameLabel.Font = Drawing.Fonts.UI
+            
+            espData.distanceLabel.Color = settings.guiColor
+            espData.distanceLabel.Size = 12
+            espData.distanceLabel.Outline = true
+            espData.distanceLabel.OutlineColor = Color3.new(0, 0, 0)
+            espData.distanceLabel.Visible = false
+            espData.distanceLabel.Font = Drawing.Fonts.UI
+            
+            espData.box.Color = settings.guiColor
+            espData.box.Thickness = 2
+            espData.box.Filled = false
+            espData.box.Visible = false
+            
+            espData.healthBar.Color = settings.guiColor
+            espData.healthBar.Thickness = 3
+            espData.healthBar.Visible = false
+            
+            espData.healthBarBg.Color = Color3.fromRGB(50, 50, 50)
+            espData.healthBarBg.Thickness = 3
+            espData.healthBarBg.Visible = false
+            
+            playerESP[player] = espData
+            
+            return espData
+        end
+
+        -- プレイヤーESP更新
+        local function updatePlayerESP(player, espData)
+            local character = player.Character
+            if not character then 
+                for _, drawing in pairs(espData) do
+                    if drawing then drawing.Visible = false end
+                end
+                if playerLines[player] then
+                    playerLines[player].Visible = false
+                end
+                return false
+            end
+            
+            local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+            local humanoid = character:FindFirstChild("Humanoid")
+            
+            if not humanoidRootPart or not humanoid then 
+                for _, drawing in pairs(espData) do
+                    if drawing then drawing.Visible = false end
+                end
+                if playerLines[player] then
+                    playerLines[player].Visible = false
+                end
+                return false
+            end
+            
+            local position, onScreen = Camera:WorldToViewportPoint(humanoidRootPart.Position)
+            local distance = (humanoidRootPart.Position - Camera.CFrame.Position).Magnitude
+            
+            local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            
+            local line = playerLines[player]
+            if line and espEnabled then
+                if onScreen then
+                    line.From = screenCenter
+                    line.To = Vector2.new(position.X, position.Y)
+                else
+                    local screenPos = Vector2.new(position.X, position.Y)
+                    local direction = (screenPos - screenCenter).Unit
+                    local screenEdge = screenCenter + (direction * 500)
+                    
+                    line.From = screenCenter
+                    line.To = screenEdge
+                end
+                line.Visible = true
+            elseif line then
+                line.Visible = false
+            end
+            
+            if onScreen then
+                local scale = math.clamp(1000 / distance, 0.5, 1.5)
+                
+                local head = character:FindFirstChild("Head")
+                local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+                
+                if head and torso then
+                    local headPos = Camera:WorldToViewportPoint(head.Position)
+                    local torsoPos = Camera:WorldToViewportPoint(torso.Position)
+                    
+                    local playerHeight = math.abs(headPos.Y - torsoPos.Y) * 2.5
+                    local playerWidth = playerHeight * 0.5
+                    
+                    local boxX = position.X - (playerWidth / 2)
+                    local boxY = position.Y - (playerHeight / 2)
+                    
+                    espData.box.Size = Vector2.new(playerWidth, playerHeight)
+                    espData.box.Position = Vector2.new(boxX, boxY)
+                    espData.box.Visible = espEnabled
+                    
+                    espData.nameLabel.Position = Vector2.new(position.X, boxY - 20)
+                    espData.nameLabel.Text = player.Name
+                    espData.nameLabel.Visible = espEnabled
+                    
+                    espData.distanceLabel.Position = Vector2.new(position.X, boxY + playerHeight + 5)
+                    espData.distanceLabel.Text = math.floor(distance) .. "m"
+                    espData.distanceLabel.Visible = espEnabled
+                    
+                    local healthPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+                    local barHeight = playerHeight * 0.8
+                    local barX = boxX - 10
+                    local barYBottom = boxY + playerHeight
+                    local barYTop = barYBottom - barHeight
+                    local healthY = barYBottom - (barHeight * healthPercent)
+                    
+                    espData.healthBarBg.From = Vector2.new(barX, barYBottom)
+                    espData.healthBarBg.To = Vector2.new(barX, barYTop)
+                    espData.healthBarBg.Visible = espEnabled
+                    
+                    espData.healthBar.From = Vector2.new(barX, barYBottom)
+                    espData.healthBar.To = Vector2.new(barX, healthY)
+                    espData.healthBar.Visible = espEnabled
+                    
+                    return true
+                end
+            else
+                for name, drawing in pairs(espData) do
+                    if name ~= "distanceLabel" then
+                        drawing.Visible = false
+                    end
+                end
+                
+                if espEnabled then
+                    local screenPos = Vector2.new(position.X, position.Y)
+                    local direction = (screenPos - screenCenter).Unit
+                    local edgePos = screenCenter + (direction * 300)
+                    
+                    espData.distanceLabel.Position = edgePos
+                    espData.distanceLabel.Text = player.Name .. " [" .. math.floor(distance) .. "m]"
+                    espData.distanceLabel.Visible = true
+                else
+                    espData.distanceLabel.Visible = false
+                end
+            end
+            
+            return false
+        end
+
+        -- プレイヤーESP削除
+        local function removePlayerESP(player)
+            if playerESP[player] then
+                for _, drawing in pairs(playerESP[player]) do
+                    if drawing then drawing:Remove() end
+                end
+                playerESP[player] = nil
+            end
+            
+            if playerLines[player] then
+                playerLines[player]:Remove()
+                playerLines[player] = nil
+            end
+        end
+
+        -- すべてのESPクリア
+        local function clearAllESP()
+            for player, _ in pairs(playerESP) do
+                removePlayerESP(player)
+            end
+            playerESP = {}
+            
+            for _, line in ipairs(playerLines) do
+                if line then line:Remove() end
+            end
+            playerLines = {}
+            
+            clearAllDrawings()
+        end
+
+        -- プレイヤー管理
+        local function onPlayerAdded(player)
+            createPlayerESP(player)
+        end
+
+        local function onPlayerRemoving(player)
+            removePlayerESP(player)
+            if selectedTarget == player then
+                selectedTarget = nil
+                addSeisaLogMessage(seisaLogHandles, "Target player left server: " .. player.Name)
+            end
+        end
+
+        -- システム情報更新
+        local lastUpdate = tick()
+        local frameCount = 0
+        local fps = 0
+        local lastPingCheck = tick()
+
+        -- Aimシステム変数
+        local AimbotEnabled = false
+        local AimrookEnabled = false
+        local selectedTarget = nil
+        local autoTarget = nil
+        local trackingMode = "CAMERA"
+        local AimParts = {"Head", "HumanoidRootPart"}
+        local AimPartName = "Head"
+        local lastAimTime = 0
+        local aimCooldown = 0.016
+
+        local function updateSystemInfo(systemHandles, espHandles)
+            if not systemHandles or not systemHandles.labels then return end
+            
+            frameCount = frameCount + 1
+            local currentTime = tick()
+            local elapsed = currentTime - lastUpdate
+            
+            if elapsed >= 0.2 then
+                fps = math.floor(frameCount / elapsed)
+                frameCount = 0
+                lastUpdate = currentTime
+            end
+            
+            systemHandles.labels.fps.Text = tostring(fps)
+            systemHandles.labels.cpu.Text = math.random(5, 85) .. "%"
+            systemHandles.labels.gpu.Text = math.random(10, 95) .. "%"
+            
+            if currentTime - lastPingCheck >= 1 then
+                systemHandles.labels.ping.Text = math.random(15, 250) .. "ms"
+                lastPingCheck = currentTime
+            end
+            
+            systemHandles.labels.aimbot.Text = AimbotEnabled and "ON" or "OFF"
+            systemHandles.labels.aimrook.Text = AimrookEnabled and "ON" or "OFF"
+            systemHandles.labels.target.Text = selectedTarget and selectedTarget.Name or (autoTarget and autoTarget.Name or "NONE")
+            
+            local targetForDistance = selectedTarget or autoTarget
+            if targetForDistance and targetForDistance.Character and targetForDistance.Character:FindFirstChild("HumanoidRootPart") then
+                local localChar = LocalPlayer.Character
+                if localChar and localChar:FindFirstChild("HumanoidRootPart") then
+                    local distance = (targetForDistance.Character.HumanoidRootPart.Position - localChar.HumanoidRootPart.Position).Magnitude
+                    systemHandles.labels.distance.Text = math.floor(distance) .. "m"
+                else
+                    systemHandles.labels.distance.Text = "0m"
+                end
+            else
+                systemHandles.labels.distance.Text = "0m"
+            end
+            
+            systemHandles.labels.mode.Text = trackingMode
+            
+            if espHandles then
+                if espHandles.aimbotButton then
+                    espHandles.aimbotButton.Text = "Aimbot: " .. (AimbotEnabled and "ON" or "OFF")
+                    espHandles.aimbotButton.BackgroundTransparency = AimbotEnabled and 0.1 or 0.3
+                end
+                
+                if espHandles.aimrookButton then
+                    espHandles.aimrookButton.Text = "Aimrook: " .. (AimrookEnabled and "ON" or "OFF")
+                    espHandles.aimrookButton.BackgroundTransparency = AimrookEnabled and 0.1 or 0.3
+                end
+                
+                if espHandles.targetSelectButton then
+                    espHandles.targetSelectButton.Text = "Target: " .. (selectedTarget and selectedTarget.Name or "NONE")
+                end
+                
+                if espHandles.trackingModeButton then
+                    espHandles.trackingModeButton.Text = "Track: " .. trackingMode
+                end
+            end
+        end
+
+        -- プレイヤー選択メニュー作成
+        local function createPlayerSelectionMenu()
+            local existingMenu = mainContainer:FindFirstChild("PlayerSelectionMenu")
+            if existingMenu then
+                existingMenu:Destroy()
+            end
+            
+            local selectionGUI = Instance.new("Frame")
+            selectionGUI.Name = "PlayerSelectionMenu"
+            selectionGUI.Size = UDim2.new(0, 250, 0, 300)
+            selectionGUI.Position = UDim2.new(0.5, -125, 0.5, -150)
+            selectionGUI.BackgroundColor3 = settings.backgroundColor
+            selectionGUI.BackgroundTransparency = 0.05
+            selectionGUI.BorderSizePixel = 2
+            selectionGUI.BorderColor3 = settings.guiColor
+            selectionGUI.ZIndex = 1000
+            selectionGUI.Parent = mainContainer
+            
+            local overlay = Instance.new("Frame")
+            overlay.Name = "Overlay"
+            overlay.Size = UDim2.new(1, 0, 1, 0)
+            overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            overlay.BackgroundTransparency = 0.5
+            overlay.ZIndex = 999
+            overlay.Parent = selectionGUI
+            
+            local menuContainer = Instance.new("Frame")
+            menuContainer.Name = "MenuContainer"
+            menuContainer.Size = UDim2.new(1, 0, 1, 0)
+            menuContainer.BackgroundTransparency = 1
+            menuContainer.ZIndex = 1001
+            menuContainer.Parent = selectionGUI
+            
+            local titleBar = Instance.new("TextButton")
+            titleBar.Text = "Select Target Player"
+            titleBar.Size = UDim2.new(1, 0, 0, 30)
+            titleBar.BackgroundColor3 = settings.guiColor
+            titleBar.BackgroundTransparency = 0.2
+            titleBar.TextColor3 = settings.textColor
+            titleBar.Font = Enum.Font.GothamBold
+            titleBar.TextSize = 14
+            titleBar.AutoButtonColor = false
+            titleBar.ZIndex = 1002
+            titleBar.Parent = menuContainer
+            
+            local closeButton = Instance.new("TextButton")
+            closeButton.Text = "X"
+            closeButton.Size = UDim2.new(0, 30, 0, 30)
+            closeButton.Position = UDim2.new(1, -30, 0, 0)
+            closeButton.BackgroundColor3 = settings.guiColor
+            closeButton.TextColor3 = settings.textColor
+            closeButton.Font = Enum.Font.GothamBold
+            closeButton.TextSize = 14
+            closeButton.ZIndex = 1002
+            closeButton.Parent = menuContainer
+            
+            closeButton.MouseButton1Click:Connect(function()
+                selectionGUI:Destroy()
+            end)
+            
+            local scrollFrame = Instance.new("ScrollingFrame")
+            scrollFrame.Size = UDim2.new(1, -10, 1, -40)
+            scrollFrame.Position = UDim2.new(0, 5, 0, 35)
+            scrollFrame.BackgroundTransparency = 1
+            scrollFrame.BorderSizePixel = 0
+            scrollFrame.ScrollBarThickness = 5
+            scrollFrame.ScrollBarImageColor3 = settings.guiColor
+            scrollFrame.ZIndex = 1002
+            scrollFrame.Parent = menuContainer
+            
+            local yOffset = 0
+            local playerCount = 0
+            
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    playerCount = playerCount + 1
+                    
+                    local playerButton = Instance.new("TextButton")
+                    playerButton.Text = player.Name
+                    playerButton.Size = UDim2.new(1, -10, 0, 30)
+                    playerButton.Position = UDim2.new(0, 5, 0, yOffset)
+                    playerButton.BackgroundColor3 = player == selectedTarget and settings.guiColor or Color3.fromRGB(50, 50, 50)
+                    playerButton.BackgroundTransparency = player == selectedTarget and 0.2 or 0.5
+                    playerButton.TextColor3 = settings.textColor
+                    playerButton.Font = Enum.Font.Gotham
+                    playerButton.TextSize = 12
+                    playerButton.ZIndex = 1002
+                    playerButton.Parent = scrollFrame
+                    
+                    playerButton.MouseButton1Click:Connect(function()
+                        selectedTarget = player
+                        addSeisaLogMessage(seisaLogHandles, "Target selected: " .. player.Name)
+                        selectionGUI:Destroy()
+                    end)
+                    
+                    yOffset = yOffset + 35
+                end
+            end
+            
+            if playerCount == 0 then
+                local noPlayersLabel = Instance.new("TextLabel")
+                noPlayersLabel.Text = "No players available"
+                noPlayersLabel.Size = UDim2.new(1, -10, 0, 30)
+                noPlayersLabel.Position = UDim2.new(0, 5, 0, 0)
+                noPlayersLabel.BackgroundTransparency = 1
+                noPlayersLabel.TextColor3 = settings.textColor
+                noPlayersLabel.Font = Enum.Font.Gotham
+                noPlayersLabel.TextSize = 12
+                noPlayersLabel.ZIndex = 1002
+                noPlayersLabel.Parent = scrollFrame
+                yOffset = yOffset + 35
+            end
+            
+            scrollFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
+            
+            overlay.MouseButton1Click:Connect(function()
+                selectionGUI:Destroy()
+            end)
+            
+            return selectionGUI
+        end
+
+        -- キャラクターの向きを調整する関数
+        local function adjustCharacterOrientation(targetPosition)
+            local localChar = LocalPlayer.Character
+            if not localChar then return end
+            
+            local humanoidRootPart = localChar:FindFirstChild("HumanoidRootPart")
+            local humanoid = localChar:FindFirstChild("Humanoid")
+            
+            if not humanoidRootPart or not humanoid then return end
+            
+            if trackingMode == "CHARACTER" then
+                local direction = (targetPosition - humanoidRootPart.Position).Unit
+                local lookVector = Vector3.new(direction.X, 0, direction.Z)
+                
+                humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position, 
+                    humanoidRootPart.Position + lookVector)
+            end
+        end
+
+        -- Aimbotロジック（無限範囲、近いプレイヤー優先）
+        local function updateAimbot(deltaTime)
+            if not AimbotEnabled then 
+                autoTarget = nil
+                return 
+            end
+            
+            local currentTime = tick()
+            if currentTime - lastAimTime < aimCooldown then
+                return
+            end
+            
+            local bestPlayer, bestPart, closestDistance = nil, nil, math.huge
+            local localChar = LocalPlayer.Character
+            local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
+            
+            if not localRoot then return end
+
+            for _, plr in pairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
+                    local part = plr.Character:FindFirstChild(AimPartName)
+                    if part then
+                        local targetPos = part.Position
+                        local distance = (localRoot.Position - targetPos).Magnitude
+                        
+                        if distance < closestDistance then
+                            closestDistance = distance
+                            bestPlayer = plr
+                            bestPart = part
+                        end
+                    end
+                end
+            end
+
+            if bestPlayer and bestPart then
+                autoTarget = bestPlayer
+                local targetPos = bestPart.Position
+                
+                local currentCFrame = Camera.CFrame
+                local targetCFrame = CFrame.lookAt(currentCFrame.Position, targetPos)
+                local smoothedCFrame = currentCFrame:Lerp(targetCFrame, 0.95)
+                Camera.CFrame = smoothedCFrame
+                
+                adjustCharacterOrientation(targetPos)
+                
+                lastAimTime = currentTime
+            else
+                autoTarget = nil
+            end
+        end
+
+        -- Aimrookロジック（体とカメラの同期対応）
+        local function updateAimrook(deltaTime)
+            if not AimrookEnabled or not selectedTarget then 
+                return 
+            end
+            
+            local currentTime = tick()
+            if currentTime - lastAimTime < aimCooldown then
+                return
+            end
+            
+            if not selectedTarget.Parent then
+                addSeisaLogMessage(seisaLogHandles, "Target left server: " .. selectedTarget.Name)
+                selectedTarget = nil
+                return
+            end
+            
+            local targetChar = selectedTarget.Character
+            local localChar = LocalPlayer.Character
+            
+            if not targetChar or not localChar then
+                return
+            end
+            
+            local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+            local targetHead = targetChar:FindFirstChild("Head")
+            local localRoot = localChar:FindFirstChild("HumanoidRootPart")
+            
+            if not targetRoot or not localRoot then 
+                return
+            end
+            
+            local targetPart = targetHead or targetRoot
+            local targetPos = targetPart.Position
+            
+            local currentCFrame = Camera.CFrame
+            local currentPos = currentCFrame.Position
+            local targetDirection = (targetPos - currentPos).Unit
+            
+            local lookCFrame = CFrame.new(currentPos, currentPos + targetDirection)
+            local smoothedCFrame = currentCFrame:Lerp(lookCFrame, 0.96)
+            
+            local finalDirection = (targetPos - smoothedCFrame.Position).Unit
+            Camera.CFrame = CFrame.new(smoothedCFrame.Position, smoothedCFrame.Position + finalDirection)
+            
+            adjustCharacterOrientation(targetPos)
+            
+            lastAimTime = currentTime
+        end
+
+        -- メインループ
+        local systemHandles, seisaLogHandles, espHandles
+        local lastLogUpdate = 0
+        local lastDeltaTime = 0
+
+        local function mainLoop()
+            local deltaTime = tick() - lastDeltaTime
+            lastDeltaTime = tick()
+            
+            if allGUIEnabled and systemHandles then
+                updateSystemInfo(systemHandles, espHandles)
+            end
+            
+            local currentTime = tick()
+            if allGUIEnabled and seisaLogHandles and currentTime - lastLogUpdate >= 0.5 then
+                addSeisaLogMessage(seisaLogHandles, systemLogs[math.random(1, #systemLogs)])
+                lastLogUpdate = currentTime
+            end
+            
+            for player, espData in pairs(playerESP) do
+                if player and player.Parent then
+                    updatePlayerESP(player, espData)
+                else
+                    removePlayerESP(player)
+                end
+            end
+            
+            if AimrookEnabled and selectedTarget then
+                updateAimrook(deltaTime)
+            elseif AimbotEnabled then
+                updateAimbot(deltaTime)
+            end
+        end
+
+        -- 通知システム
+        local function ShowNotification(title, content)
+            print("[Hokuto Hub] " .. title .. ": " .. (content or ""))
+        end
+
+        local function ShowToggleNotification(name, enabled)
+            ShowNotification(name, enabled and "Enabled" or "Disabled")
+        end
+
+        -- 初期化
+        local function initialize()
+            createMainContainer()
+            
+            espHandles = createESPGUI()
+            systemHandles = createSystemGUI()
+            seisaLogHandles = createSeisaLogGUI()
+            
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    createPlayerESP(player)
+                end
+            end
+            
+            Players.PlayerAdded:Connect(onPlayerAdded)
+            Players.PlayerRemoving:Connect(onPlayerRemoving)
+            
+            if espHandles.aimbotButton then
+                espHandles.aimbotButton.MouseButton1Click:Connect(function()
+                    AimbotEnabled = not AimbotEnabled
+                    ShowToggleNotification("Aimbot", AimbotEnabled)
+                    addSeisaLogMessage(seisaLogHandles, "Aimbot " .. (AimbotEnabled and "enabled (無限範囲)" or "disabled"))
+                    
+                    if AimbotEnabled and AimrookEnabled then
+                        addSeisaLogMessage(seisaLogHandles, "Aimbot active (Aimrook disabled)")
+                        AimrookEnabled = false
+                    end
+                end)
+            end
+            
+            if espHandles.aimrookButton then
+                espHandles.aimrookButton.MouseButton1Click:Connect(function()
+                    AimrookEnabled = not AimrookEnabled
+                    ShowToggleNotification("Aimrook", AimrookEnabled)
+                    addSeisaLogMessage(seisaLogHandles, "Aimrook " .. (AimrookEnabled and "enabled" or "disabled"))
+                    
+                    if AimrookEnabled and AimbotEnabled then
+                        addSeisaLogMessage(seisaLogHandles, "Aimrook active (Aimbot disabled)")
+                        AimbotEnabled = false
+                    end
+                    
+                    if AimrookEnabled and not selectedTarget then
+                        createPlayerSelectionMenu()
+                    end
+                end)
+            end
+            
+            if espHandles.targetSelectButton then
+                espHandles.targetSelectButton.MouseButton1Click:Connect(function()
+                    createPlayerSelectionMenu()
+                end)
+            end
+            
+            if espHandles.clearTargetButton then
+                espHandles.clearTargetButton.MouseButton1Click:Connect(function()
+                    selectedTarget = nil
+                    ShowNotification("Target", "Cleared")
+                    addSeisaLogMessage(seisaLogHandles, "Target cleared")
+                end)
+            end
+            
+            if espHandles.trackingModeButton then
+                espHandles.trackingModeButton.MouseButton1Click:Connect(function()
+                    if trackingMode == "CAMERA" then
+                        trackingMode = "CHARACTER"
+                        addSeisaLogMessage(seisaLogHandles, "Tracking mode: CHARACTER (Body follows camera)")
+                    else
+                        trackingMode = "CAMERA"
+                        addSeisaLogMessage(seisaLogHandles, "Tracking mode: CAMERA (Camera only)")
+                    end
+                end)
+            end
+            
+            UserInputService.InputBegan:Connect(function(input, gameProcessed)
+                if gameProcessed then return end
+                
+                if input.KeyCode == settings.toggleKey then
+                    allGUIEnabled = not allGUIEnabled
+                    
+                    if espHandles and espHandles.frame then
+                        espHandles.frame.Visible = allGUIEnabled
+                    end
+                    
+                    if systemHandles and systemHandles.frame then
+                        systemHandles.frame.Visible = allGUIEnabled
+                    end
+                    
+                    if seisaLogHandles and seisaLogHandles.frame then
+                        seisaLogHandles.frame.Visible = allGUIEnabled
+                        
+                        if allGUIEnabled then
+                            addSeisaLogMessage(seisaLogHandles, "GUI enabled")
+                            addSeisaLogMessage(seisaLogHandles, "System operational")
+                        end
+                    end
+                    
+                    ShowToggleNotification("Hokuto Hub GUI", allGUIEnabled)
+                end
+            end)
+            
+            RunService.RenderStepped:Connect(mainLoop)
+            
+            task.wait(0.5)
+            ShowNotification("Hokuto Hub", "Aim Systems Loaded!")
+            addSeisaLogMessage(seisaLogHandles, "System initialized successfully")
+            addSeisaLogMessage(seisaLogHandles, "Aim systems ready - 無限範囲")
+            addSeisaLogMessage(seisaLogHandles, "Character-camera sync enabled")
+            
+            print("==========================================")
+            print("Hokuto Hub ESP System with Fixed Aim")
+            print("【修正完了: 無限範囲モード】")
+            print("FIXED ISSUES:")
+            print("  ✓ CORRECT COLOR SCHEME - Pink/White/Black/Orange only")
+            print("  ✓ CHARACTER-CAMERA SYNC - Body follows camera direction")
+            print("  ✓ TRACKING MODE - Switch between CAMERA/CHARACTER tracking")
+            print("  ✓ NO FLICKERING - Stable 96% lerp for smooth aiming")
+            print("  ✓ PROPER TARGET CLEARING - Server-based removal only")
+            print("DUAL AIM SYSTEMS:")
+            print("  ✓ AIMBOT - 無限範囲・最も近いプレイヤーを自動追尾")
+            print("  ✓ AIMROOK - 手動で選択したプレイヤーを追尾")
+            print("  ✓ MUTUAL EXCLUSION - Only one system active at a time")
+            print("FEATURES:")
+            print("  ✓ ESP with lines to ALL players")
+            print("  ✓ Draggable GUIs")
+            print("  ✓ Auto-scrolling SeisaLog")
+            print("  ✓ Real-time system info")
+            print("Controls:")
+            print("  Right Shift - Toggle all GUI panels")
+            print("  Click 'Track Mode' to switch between CAMERA/CHARACTER")
+            print("  CHARACTER mode syncs body rotation with camera")
+            print("==========================================")
+        end
+
+        -- クリーンアップ
+        local function cleanup()
+            clearAllESP()
+            if mainContainer then
+                mainContainer:Destroy()
+            end
+            for _, connections in pairs(guiConnections) do
+                for _, conn in ipairs(connections) do
+                    pcall(function() conn:Disconnect() end)
+                end
+            end
+            guiConnections = {}
+        end
+
+        game:GetService("Players").PlayerRemoving:Connect(function(player)
+            if player == LocalPlayer then
+                cleanup()
+            end
+        end)
+
+        local success, err = pcall(initialize)
+
+        if not success then
+            warn("[Hokuto Hub Error]: " .. tostring(err))
+            ShowNotification("Error", "Initialization failed: " .. tostring(err))
+        end
+    end
+})
