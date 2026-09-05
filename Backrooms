@@ -1,0 +1,1194 @@
+--[[
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+-- AK.GUI - 迷路バックルームズ専用機能 (7300スタッド版 + 完全生成 + エンティティ)
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local SoundService = game:GetService("SoundService")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- 音声アセットID
+local START_SOUND_ID = "1837769261"
+local BUTTON_SOUND_ID = "115916891254154"
+local BACKROOMS_SOUND_ID = "131147973"
+local ENTITY_SOUND_ID = "138013032"
+local ATTACK_SOUND_ID = "159698324"
+
+-- 音声再生関数
+local function playSound(soundId, volume)
+    volume = volume or 0.5
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://" .. soundId
+    sound.Volume = volume
+    sound.Parent = SoundService
+    sound:Play()
+    
+    sound.Ended:Connect(function()
+        sound:Destroy()
+    end)
+end
+
+-- スクリプト読み込み時の音声再生
+playSound(START_SOUND_ID)
+
+-- GUI作成
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AK_GUI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = playerGui
+
+-- メインフレーム
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 200, 0, 180)
+mainFrame.Position = UDim2.new(0, 10, 0, 10)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+mainFrame.BorderSizePixel = 0
+mainFrame.BackgroundTransparency = 0.05
+mainFrame.Parent = screenGui
+
+-- 角丸
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = mainFrame
+
+-- ボーダー
+local border = Instance.new("UIStroke")
+border.Color = Color3.fromRGB(100, 100, 150)
+border.Thickness = 2
+border.Parent = mainFrame
+
+-- タイトル
+local title = Instance.new("TextLabel")
+title.Name = "Title"
+title.Size = UDim2.new(1, 0, 0, 25)
+title.Position = UDim2.new(0, 0, 0, 0)
+title.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+title.TextColor3 = Color3.fromRGB(220, 220, 255)
+title.Text = "👹 BACKROOMS 7300 FIXED 👹"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 12
+title.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = title
+
+-- コントロールボタンコンテナ
+local controlContainer = Instance.new("Frame")
+controlContainer.Name = "ControlContainer"
+controlContainer.Size = UDim2.new(1, -20, 0, 20)
+controlContainer.Position = UDim2.new(0, 10, 1, -25)
+controlContainer.BackgroundTransparency = 1
+controlContainer.Parent = mainFrame
+
+-- コントロールボタンのレイアウト
+local controlLayout = Instance.new("UIGridLayout")
+controlLayout.CellSize = UDim2.new(0.5, -4, 1, 0)
+controlLayout.CellPadding = UDim2.new(0, 8, 0, 0)
+controlLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+controlLayout.Parent = controlContainer
+
+-- Hideボタン
+local toggleButton = Instance.new("TextButton")
+toggleButton.Name = "ToggleButton"
+toggleButton.Size = UDim2.new(1, 0, 1, 0)
+toggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+toggleButton.TextColor3 = Color3.fromRGB(200, 200, 255)
+toggleButton.Text = "Hide"
+toggleButton.Font = Enum.Font.Gotham
+toggleButton.TextSize = 10
+toggleButton.Parent = controlContainer
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 6)
+toggleCorner.Parent = toggleButton
+
+-- Pinボタン
+local pinButton = Instance.new("TextButton")
+pinButton.Name = "PinButton"
+pinButton.Size = UDim2.new(1, 0, 1, 0)
+pinButton.BackgroundColor3 = Color3.fromRGB(160, 100, 220)
+pinButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+pinButton.Text = "Fixed GUI"
+pinButton.Font = Enum.Font.Gotham
+pinButton.TextSize = 10
+pinButton.Parent = controlContainer
+
+local pinCorner = Instance.new("UICorner")
+pinCorner.CornerRadius = UDim.new(0, 6)
+pinCorner.Parent = pinButton
+
+-- ボタンコンテナ
+local buttonContainer = Instance.new("Frame")
+buttonContainer.Name = "ButtonContainer"
+buttonContainer.Size = UDim2.new(1, -20, 1, -70)
+buttonContainer.Position = UDim2.new(0, 10, 0, 30)
+buttonContainer.BackgroundTransparency = 1
+buttonContainer.Visible = true
+buttonContainer.Parent = mainFrame
+
+-- ボタンレイアウト
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 6)
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+layout.VerticalAlignment = Enum.VerticalAlignment.Top
+layout.Parent = buttonContainer
+
+-- ボタン作成関数
+function createButton(text, color, height)
+    height = height or 35
+    local button = Instance.new("TextButton")
+    button.Name = text .. "Button"
+    button.Size = UDim2.new(1, 0, 0, height)
+    button.BackgroundColor3 = color
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Text = text
+    button.Font = Enum.Font.GothamMedium
+    button.TextSize = 12
+    button.AutoButtonColor = true
+    
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 8)
+    buttonCorner.Parent = button
+    
+    return button
+end
+
+-- 迷路生成関数
+local function generateMaze(width, height)
+    local maze = {}
+    for x = 1, width do
+        maze[x] = {}
+        for y = 1, height do
+            maze[x][y] = 0
+        end
+    end
+    
+    local stack = {}
+    local startX, startY = 2, 2
+    
+    maze[startX][startY] = 1
+    table.insert(stack, {x = startX, y = startY})
+    
+    local directions = {
+        {dx = 2, dy = 0},
+        {dx = -2, dy = 0},
+        {dx = 0, dy = 2},
+        {dx = 0, dy = -2}
+    }
+    
+    while #stack > 0 do
+        local current = stack[#stack]
+        local available = {}
+        
+        for _, dir in ipairs(directions) do
+            local nx, ny = current.x + dir.dx, current.y + dir.dy
+            if nx >= 1 and nx <= width and ny >= 1 and ny <= height and maze[nx][ny] == 0 then
+                local wallX, wallY = current.x + dir.dx/2, current.y + dir.dy/2
+                if maze[wallX] and maze[wallX][wallY] == 0 then
+                    table.insert(available, {dx = dir.dx, dy = dir.dy})
+                end
+            end
+        end
+        
+        if #available > 0 then
+            local chosen = available[math.random(1, #available)]
+            local wallX, wallY = current.x + chosen.dx/2, current.y + chosen.dy/2
+            local newX, newY = current.x + chosen.dx, current.y + chosen.dy
+            
+            maze[wallX][wallY] = 1
+            maze[newX][newY] = 1
+            
+            table.insert(stack, {x = newX, y = newY})
+        else
+            table.remove(stack)
+        end
+    end
+    
+    maze[1][2] = 1
+    maze[width][height-1] = 1
+    
+    return maze
+end
+
+-- ★エンティティ管理
+local entities = {}
+local entityConnections = {}
+
+-- エンティティ作成関数
+local function createEntity(position, color, speed, aggression)
+    local entityFolder = Workspace:FindFirstChild("Backrooms_Level0")
+    if not entityFolder then return nil end
+    
+    local model = Instance.new("Model")
+    model.Name = "BackroomsEntity_" .. #entities + 1
+    model.Parent = entityFolder
+    
+    local mainPart = Instance.new("Part")
+    mainPart.Name = "Torso"
+    mainPart.Size = Vector3.new(2, 12, 1.5)
+    mainPart.Position = position
+    mainPart.Anchored = false
+    mainPart.CanCollide = true
+    mainPart.Material = Enum.Material.SmoothPlastic
+    mainPart.Color = color or Color3.fromRGB(20, 20, 20)
+    mainPart.BrickColor = BrickColor.new("Really black")
+    mainPart.BottomSurface = Enum.SurfaceType.Smooth
+    mainPart.TopSurface = Enum.SurfaceType.Smooth
+    mainPart.Parent = model
+    
+    local light = Instance.new("PointLight", mainPart)
+    light.Brightness = 2
+    light.Range = 15
+    light.Color = color or Color3.fromRGB(100, 0, 0)
+    light.Shadows = true
+    
+    local head = Instance.new("Part")
+    head.Name = "Head"
+    head.Size = Vector3.new(1.8, 1.8, 1.8)
+    head.Position = position + Vector3.new(0, 6.5, 0)
+    head.Anchored = false
+    head.CanCollide = true
+    head.Material = Enum.Material.Glass
+    head.Color = Color3.fromRGB(30, 30, 30)
+    head.Transparency = 0.3
+    head.BrickColor = BrickColor.new("Black")
+    head.Parent = model
+    
+    local eye1 = Instance.new("Part")
+    eye1.Name = "LeftEye"
+    eye1.Size = Vector3.new(0.4, 0.4, 0.2)
+    eye1.Position = position + Vector3.new(-0.5, 7, 0.9)
+    eye1.Anchored = false
+    eye1.CanCollide = false
+    eye1.Material = Enum.Material.Neon
+    eye1.Color = Color3.fromRGB(255, 0, 0)
+    eye1.Parent = model
+    
+    local eye2 = Instance.new("Part")
+    eye2.Name = "RightEye"
+    eye2.Size = Vector3.new(0.4, 0.4, 0.2)
+    eye2.Position = position + Vector3.new(0.5, 7, 0.9)
+    eye2.Anchored = false
+    eye2.CanCollide = false
+    eye2.Material = Enum.Material.Neon
+    eye2.Color = Color3.fromRGB(255, 0, 0)
+    eye2.Parent = model
+    
+    for i = -1, 1, 2 do
+        local arm = Instance.new("Part")
+        arm.Name = "Arm" .. ((i + 3) / 2)
+        arm.Size = Vector3.new(0.8, 8, 0.8)
+        arm.Position = position + Vector3.new(i * 1.5, 2, 0)
+        arm.Anchored = false
+        arm.CanCollide = true
+        arm.Material = Enum.Material.SmoothPlastic
+        arm.Color = Color3.fromRGB(15, 15, 15)
+        arm.Parent = model
+    end
+    
+    local weld1 = Instance.new("Weld")
+    weld1.Name = "HeadWeld"
+    weld1.Part0 = mainPart
+    weld1.Part1 = head
+    weld1.C0 = CFrame.new(0, 6.5, 0)
+    weld1.Parent = mainPart
+    
+    local weld2 = Instance.new("Weld")
+    weld2.Name = "LeftEyeWeld"
+    weld2.Part0 = head
+    weld2.Part1 = eye1
+    weld2.C0 = CFrame.new(-0.5, 0.5, 0.8)
+    weld2.Parent = head
+    
+    local weld3 = Instance.new("Weld")
+    weld3.Name = "RightEyeWeld"
+    weld3.Part0 = head
+    weld3.Part1 = eye2
+    weld3.C0 = CFrame.new(0.5, 0.5, 0.8)
+    weld3.Parent = head
+    
+    local weld4 = Instance.new("Weld")
+    weld4.Name = "LeftArmWeld"
+    weld4.Part0 = mainPart
+    weld4.Part1 = model:FindFirstChild("Arm1")
+    weld4.C0 = CFrame.new(-1.5, -1, 0)
+    weld4.Parent = mainPart
+    
+    local weld5 = Instance.new("Weld")
+    weld5.Name = "RightArmWeld"
+    weld5.Part0 = mainPart
+    weld5.Part1 = model:FindFirstChild("Arm2")
+    weld5.C0 = CFrame.new(1.5, -1, 0)
+    weld5.Parent = mainPart
+    
+    local sound = Instance.new("Sound")
+    sound.Name = "EntitySound"
+    sound.SoundId = "rbxassetid://" .. ENTITY_SOUND_ID
+    sound.Looped = true
+    sound.Volume = 0.3
+    sound.Parent = model
+    sound:Play()
+    
+    local entityData = {
+        model = model,
+        mainPart = mainPart,
+        speed = speed or 12,
+        aggression = aggression or 1.0,
+        state = "idle",
+        target = nil,
+        lastAttack = 0,
+        attackCooldown = 2,
+        color = color,
+        position = position
+    }
+    
+    table.insert(entities, entityData)
+    CollectionService:AddTag(model, "BackroomsEntity")
+    
+    return entityData
+end
+
+-- エンティティAI更新
+local function updateEntities(dt)
+    local character = player.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+    
+    local playerPos = humanoidRootPart.Position
+    
+    for i, entity in ipairs(entities) do
+        if entity.model and entity.model.Parent then
+            local entityPos = entity.mainPart.Position
+            local distance = (playerPos - entityPos).Magnitude
+            
+            if distance < 40 then
+                entity.state = "chasing"
+                entity.target = playerPos
+                
+                local direction = (playerPos - entityPos).Unit
+                local newPos = entityPos + direction * entity.speed * dt
+                
+                entity.mainPart.CFrame = CFrame.lookAt(newPos, playerPos) * CFrame.Angles(0, math.pi, 0)
+                
+                if distance < 5 then
+                    local now = tick()
+                    if now - entity.lastAttack > entity.attackCooldown then
+                        entity.state = "attacking"
+                        entity.lastAttack = now
+                        
+                        playSound(ATTACK_SOUND_ID, 1.0)
+                        
+                        local flash = Instance.new("Part")
+                        flash.Name = "AttackFlash"
+                        flash.Size = Vector3.new(10, 10, 10)
+                        flash.Position = entityPos
+                        flash.Anchored = true
+                        flash.CanCollide = false
+                        flash.Material = Enum.Material.Neon
+                        flash.Color = Color3.fromRGB(255, 0, 0)
+                        flash.Transparency = 0.5
+                        flash.Parent = Workspace
+                        
+                        game:GetService("TweenService"):Create(flash, TweenInfo.new(0.3), {Transparency = 1}):Play()
+                        task.wait(0.3)
+                        flash:Destroy()
+                        
+                        if character and character:FindFirstChild("Humanoid") then
+                            character.Humanoid.Health = 0
+                        end
+                        
+                        entity.state = "chasing"
+                    end
+                end
+                
+                if entity.state == "chasing" then
+                    local t = math.sin(tick() * 10) * 0.5 + 0.5
+                    entity.mainPart.Color = Color3.fromRGB(50 + t * 50, 0, 0)
+                end
+            else
+                entity.state = "idle"
+                if math.random() < 0.01 then
+                    entity.mainPart.CFrame = entity.mainPart.CFrame * CFrame.Angles(0, math.random() * math.pi * 2, 0)
+                end
+                entity.mainPart.Color = Color3.fromRGB(20, 20, 20)
+            end
+        else
+            table.remove(entities, i)
+        end
+    end
+end
+
+-- エンティティ全削除
+local function clearEntities()
+    for i, entity in ipairs(entities) do
+        if entity.model and entity.model.Parent then
+            entity.model:Destroy()
+        end
+    end
+    entities = {}
+end
+
+-- ★メインの生成位置定数
+local BASE_POSITION = Vector3.new(0, 100, 0)
+
+-- ★異常エリア生成関数（修正版：端まで完全生成）
+local function createAnomalyZones(floorY, roomHeight, backroomsFolder, roomWidth, roomLength)
+    local anomalies = {}
+    local halfWidth = roomWidth / 2
+    local halfLength = roomLength / 2
+    
+    -- 1. 天井がないエリア (端の方にも配置)
+    for i = 1, 12 do
+        local angle = math.random() * math.pi * 2
+        -- 端まで確実に配置するため範囲を最大に
+        local radius = math.random(1000, halfWidth - 200)
+        local size = 200 + math.random(100, 300)
+        
+        local anomalyPos = Vector3.new(
+            BASE_POSITION.X + math.cos(angle) * radius,
+            floorY,
+            BASE_POSITION.Z + math.sin(angle) * radius
+        )
+        
+        -- 範囲内に収める
+        anomalyPos = Vector3.new(
+            math.clamp(anomalyPos.X, -halfWidth + size/2 + 50, halfWidth - size/2 - 50),
+            floorY,
+            math.clamp(anomalyPos.Z, -halfLength + size/2 + 50, halfLength - size/2 - 50)
+        )
+        
+        -- 天井を削除（このエリアの天井パーツを作らない）
+        local marker = Instance.new("Part")
+        marker.Name = "NoCeilingZone_" .. i
+        marker.Size = Vector3.new(size, 5, size)
+        marker.Position = anomalyPos + Vector3.new(0, roomHeight/2, 0)
+        marker.Anchored = true
+        marker.CanCollide = false
+        marker.Transparency = 0.8
+        marker.Material = Enum.Material.Neon
+        marker.Color = Color3.fromRGB(255, 255, 255)
+        marker.Parent = backroomsFolder
+        
+        -- 上から光が差すエフェクト
+        local beam = Instance.new("Part")
+        beam.Name = "LightBeam_" .. i
+        beam.Size = Vector3.new(size/2, 100, size/2)
+        beam.Position = anomalyPos + Vector3.new(0, roomHeight + 50, 0)
+        beam.Anchored = true
+        beam.CanCollide = false
+        beam.Transparency = 0.7
+        beam.Material = Enum.Material.Neon
+        beam.Color = Color3.fromRGB(255, 255, 200)
+        beam.Parent = backroomsFolder
+        
+        table.insert(anomalies, {type = "no_ceiling", position = anomalyPos, size = size})
+    end
+    
+    -- 2. 赤いエリア (端にも配置)
+    for i = 1, 10 do
+        local angle = math.random() * math.pi * 2
+        local radius = math.random(1000, halfWidth - 200)
+        local size = 250 + math.random(150, 350)
+        
+        local anomalyPos = Vector3.new(
+            BASE_POSITION.X + math.cos(angle) * radius,
+            floorY,
+            BASE_POSITION.Z + math.sin(angle) * radius
+        )
+        
+        anomalyPos = Vector3.new(
+            math.clamp(anomalyPos.X, -halfWidth + size/2 + 50, halfWidth - size/2 - 50),
+            floorY,
+            math.clamp(anomalyPos.Z, -halfLength + size/2 + 50, halfLength - size/2 - 50)
+        )
+        
+        -- 赤い床
+        local redFloor = Instance.new("Part")
+        redFloor.Name = "RedZone_Floor_" .. i
+        redFloor.Size = Vector3.new(size, 2, size)
+        redFloor.Position = anomalyPos
+        redFloor.Anchored = true
+        redFloor.CanCollide = true
+        redFloor.Material = Enum.Material.Neon
+        redFloor.Color = Color3.fromRGB(255, 0, 0)
+        redFloor.Parent = backroomsFolder
+        
+        -- 赤い壁（周囲）
+        local wallSize = 5
+        local wallPositions = {
+            Vector3.new(size/2, roomHeight/2, 0),
+            Vector3.new(-size/2, roomHeight/2, 0),
+            Vector3.new(0, roomHeight/2, size/2),
+            Vector3.new(0, roomHeight/2, -size/2)
+        }
+        
+        for _, offset in ipairs(wallPositions) do
+            local wall = Instance.new("Part")
+            wall.Name = "RedZone_Wall_" .. i
+            wall.Size = Vector3.new(size, roomHeight, wallSize)
+            wall.Position = anomalyPos + offset
+            wall.Anchored = true
+            wall.CanCollide = true
+            wall.Material = Enum.Material.Neon
+            wall.Color = Color3.fromRGB(150, 0, 0)
+            wall.Transparency = 0.3
+            wall.Parent = backroomsFolder
+        end
+        
+        local redLight = Instance.new("PointLight")
+        redLight.Parent = redFloor
+        redLight.Brightness = 3
+        redLight.Range = size
+        redLight.Color = Color3.fromRGB(255, 0, 0)
+        
+        table.insert(anomalies, {type = "red", position = anomalyPos, size = size})
+    end
+    
+    -- 3. 青いエリア (端にも配置)
+    for i = 1, 10 do
+        local angle = math.random() * math.pi * 2
+        local radius = math.random(1000, halfWidth - 200)
+        local size = 200 + math.random(150, 300)
+        
+        local anomalyPos = Vector3.new(
+            BASE_POSITION.X + math.cos(angle) * radius,
+            floorY,
+            BASE_POSITION.Z + math.sin(angle) * radius
+        )
+        
+        anomalyPos = Vector3.new(
+            math.clamp(anomalyPos.X, -halfWidth + size/2 + 50, halfWidth - size/2 - 50),
+            floorY,
+            math.clamp(anomalyPos.Z, -halfLength + size/2 + 50, halfLength - size/2 - 50)
+        )
+        
+        local blueFloor = Instance.new("Part")
+        blueFloor.Name = "BlueZone_Floor_" .. i
+        blueFloor.Size = Vector3.new(size, 2, size)
+        blueFloor.Position = anomalyPos
+        blueFloor.Anchored = true
+        blueFloor.CanCollide = true
+        blueFloor.Material = Enum.Material.Neon
+        blueFloor.Color = Color3.fromRGB(0, 100, 255)
+        blueFloor.Parent = backroomsFolder
+        
+        local blueLight = Instance.new("PointLight")
+        blueLight.Parent = blueFloor
+        blueLight.Brightness = 2
+        blueLight.Range = size
+        blueLight.Color = Color3.fromRGB(0, 100, 255)
+        
+        table.insert(anomalies, {type = "blue", position = anomalyPos, size = size})
+    end
+    
+    -- 4. 真っ黒エリア (端にも配置)
+    for i = 1, 8 do
+        local angle = math.random() * math.pi * 2
+        local radius = math.random(1000, halfWidth - 200)
+        local size = 300 + math.random(200, 400)
+        
+        local anomalyPos = Vector3.new(
+            BASE_POSITION.X + math.cos(angle) * radius,
+            floorY,
+            BASE_POSITION.Z + math.sin(angle) * radius
+        )
+        
+        anomalyPos = Vector3.new(
+            math.clamp(anomalyPos.X, -halfWidth + size/2 + 50, halfWidth - size/2 - 50),
+            floorY,
+            math.clamp(anomalyPos.Z, -halfLength + size/2 + 50, halfLength - size/2 - 50)
+        )
+        
+        local blackFloor = Instance.new("Part")
+        blackFloor.Name = "BlackZone_Floor_" .. i
+        blackFloor.Size = Vector3.new(size, 2, size)
+        blackFloor.Position = anomalyPos
+        blackFloor.Anchored = true
+        blackFloor.CanCollide = true
+        blackFloor.Material = Enum.Material.Slate
+        blackFloor.Color = Color3.fromRGB(5, 5, 5)
+        blackFloor.BrickColor = BrickColor.new("Really black")
+        blackFloor.Parent = backroomsFolder
+        
+        for j = 1, 4 do
+            local blackWall = Instance.new("Part")
+            blackWall.Name = "BlackZone_Wall_" .. i .. "_" .. j
+            blackWall.Size = Vector3.new(size + 20, roomHeight, 5)
+            blackWall.CFrame = CFrame.new(anomalyPos) * CFrame.Angles(0, (j-1) * math.pi/2, 0) * CFrame.new(0, 0, size/2 + 10)
+            blackWall.Anchored = true
+            blackWall.CanCollide = true
+            blackWall.Material = Enum.Material.Slate
+            blackWall.Color = Color3.fromRGB(2, 2, 2)
+            blackWall.BrickColor = BrickColor.new("Really black")
+            blackWall.Parent = backroomsFolder
+        end
+        
+        table.insert(anomalies, {type = "black", position = anomalyPos, size = size})
+    end
+    
+    -- 5. 天井と壁が異常に長い場所（廊下）- 端まで配置
+    for i = 1, 6 do
+        local angle = math.random() * math.pi * 2
+        local radius = math.random(1500, halfWidth - 300)
+        local length = 800 + math.random(400, 800)
+        
+        local startPos = Vector3.new(
+            BASE_POSITION.X + math.cos(angle) * radius,
+            floorY,
+            BASE_POSITION.Z + math.sin(angle) * radius
+        )
+        
+        startPos = Vector3.new(
+            math.clamp(startPos.X, -halfWidth + 200, halfWidth - 200),
+            floorY,
+            math.clamp(startPos.Z, -halfLength + 200, halfLength - 200)
+        )
+        
+        local endPos = startPos + Vector3.new(math.cos(angle + math.pi/2) * length, 0, math.sin(angle + math.pi/2) * length)
+        endPos = Vector3.new(
+            math.clamp(endPos.X, -halfWidth + 100, halfWidth - 100),
+            floorY,
+            math.clamp(endPos.Z, -halfLength + 100, halfLength - 100)
+        )
+        
+        for j = 1, math.floor(length / 50) do
+            local t = j / (length / 50)
+            local pos = startPos:Lerp(endPos, t)
+            
+            local corridor = Instance.new("Part")
+            corridor.Name = "EndlessCorridor_" .. i .. "_" .. j
+            corridor.Size = Vector3.new(30, roomHeight * 3, 30)
+            corridor.Position = pos + Vector3.new(0, roomHeight, 0)
+            corridor.Anchored = true
+            corridor.CanCollide = true
+            corridor.Material = Enum.Material.Plastic
+            corridor.Color = Color3.fromRGB(100, 100, 120)
+            corridor.Parent = backroomsFolder
+        end
+        
+        table.insert(anomalies, {type = "endless", position = startPos, length = length})
+    end
+    
+    return anomalies
+end
+
+-- ★エンティティ生成（5000スタッド範囲内に配置）- 端まで確実に
+local function createEntities(floorY, backroomsFolder, roomWidth, roomLength)
+    clearEntities()
+    
+    local halfWidth = roomWidth / 2
+    local halfLength = roomLength / 2
+    local entityCount = 900  -- 増やした
+    
+    for i = 1, entityCount do
+        local angle = math.random() * math.pi * 2
+        local radius = math.random(500, 3500)  -- 範囲を広げて端まで
+        
+        local pos = Vector3.new(
+            BASE_POSITION.X + math.cos(angle) * radius,
+            floorY + 6,
+            BASE_POSITION.Z + math.sin(angle) * radius
+        )
+        
+        -- 範囲内に収める
+        pos = Vector3.new(
+            math.clamp(pos.X, -halfWidth + 50, halfWidth - 50),
+            floorY + 6,
+            math.clamp(pos.Z, -halfLength + 50, halfLength - 50)
+        )
+        
+        local colorChoice = math.random(1, 3)
+        local color
+        if colorChoice == 1 then
+            color = Color3.fromRGB(20, 20, 20)
+        elseif colorChoice == 2 then
+            color = Color3.fromRGB(30, 30, 30)
+        else
+            color = Color3.fromRGB(10, 10, 30)
+        end
+        
+        local speed = 10 + math.random(0, 8)
+        local aggression = 0.8 + math.random() * 0.4
+        
+        createEntity(pos, color, speed, aggression)
+    end
+    
+    return entityCount
+end
+
+-- ★超広大7300スタッドバックルームズ生成関数（修正版：端まで完全生成）
+local function createBackroomsLevel0()
+    -- 既存のクリア
+    local existingFolder = Workspace:FindFirstChild("Backrooms_Level0")
+    if existingFolder then
+        existingFolder:Destroy()
+    end
+    
+    clearEntities()
+    
+    local atmosphere = Workspace:FindFirstChild("BackroomsAtmosphere")
+    if atmosphere then
+        atmosphere:Destroy()
+    end
+    
+    -- バックルームズフォルダ作成
+    local backroomsFolder = Instance.new("Folder", Workspace)
+    backroomsFolder.Name = "Backrooms_Level0"
+    
+    -- 照明設定
+    Lighting.Ambient = Color3.fromRGB(80, 80, 70)
+    Lighting.Brightness = 0.5
+    Lighting.Outlines = false
+    
+    -- ★超広大サイズ設定 (7300スタッド)
+    local roomWidth = 7300
+    local roomLength = 7300 
+    local roomHeight = 30
+    local halfWidth = roomWidth / 2
+    local halfLength = roomLength / 2
+    
+    -- 床のY位置
+    local floorY = BASE_POSITION.Y - roomHeight/2 + 2
+    
+    -- ★修正：端まで完全に覆う巨大な床（分割して生成）
+    local floorSegments = 5  -- 5x5に分割して端まで確実に
+    local segmentWidth = roomWidth / floorSegments
+    local segmentLength = roomLength / floorSegments
+    
+    for sx = 0, floorSegments - 1 do
+        for sz = 0, floorSegments - 1 do
+            local floor = Instance.new("Part", backroomsFolder)
+            floor.Name = string.format("Level0_Floor_%d_%d", sx, sz)
+            floor.Size = Vector3.new(segmentWidth + 2, 2, segmentLength + 2)  -- オーバーラップさせて隙間なし
+            floor.Position = Vector3.new(
+                BASE_POSITION.X - halfWidth + segmentWidth/2 + sx * segmentWidth,
+                floorY,
+                BASE_POSITION.Z - halfLength + segmentLength/2 + sz * segmentLength
+            )
+            floor.Anchored = true
+            floor.CanCollide = true
+            floor.Material = Enum.Material.Fabric
+            floor.Color = Color3.fromRGB(240, 200, 80)
+        end
+    end
+    
+    -- ★修正：端まで完全に覆う天井（分割して生成）
+    for sx = 0, floorSegments - 1 do
+        for sz = 0, floorSegments - 1 do
+            local ceiling = Instance.new("Part", backroomsFolder)
+            ceiling.Name = string.format("Level0_Ceiling_%d_%d", sx, sz)
+            ceiling.Size = Vector3.new(segmentWidth + 2, 2, segmentLength + 2)
+            ceiling.Position = Vector3.new(
+                BASE_POSITION.X - halfWidth + segmentWidth/2 + sx * segmentWidth,
+                floorY + roomHeight - 2,
+                BASE_POSITION.Z - halfLength + segmentLength/2 + sz * segmentLength
+            )
+            ceiling.Anchored = true
+            ceiling.CanCollide = true
+            ceiling.Material = Enum.Material.Plastic
+            ceiling.Color = Color3.fromRGB(200, 200, 160)
+            ceiling.Transparency = 0.1
+        end
+    end
+    
+    -- ★修正：外周の壁（端まで完全に覆う）
+    local wallThickness = 4
+    
+    -- 北側の壁（分割）
+    for sx = 0, floorSegments - 1 do
+        local northWall = Instance.new("Part", backroomsFolder)
+        northWall.Name = "North_Wall_" .. sx
+        northWall.Size = Vector3.new(segmentWidth + 2, roomHeight, wallThickness)
+        northWall.Position = Vector3.new(
+            BASE_POSITION.X - halfWidth + segmentWidth/2 + sx * segmentWidth,
+            floorY + roomHeight/2,
+            BASE_POSITION.Z + halfLength
+        )
+        northWall.Anchored = true
+        northWall.CanCollide = true
+        northWall.Material = Enum.Material.Plastic
+        northWall.Color = Color3.fromRGB(220, 220, 170)
+    end
+    
+    -- 南側の壁（分割）
+    for sx = 0, floorSegments - 1 do
+        local southWall = Instance.new("Part", backroomsFolder)
+        southWall.Name = "South_Wall_" .. sx
+        southWall.Size = Vector3.new(segmentWidth + 2, roomHeight, wallThickness)
+        southWall.Position = Vector3.new(
+            BASE_POSITION.X - halfWidth + segmentWidth/2 + sx * segmentWidth,
+            floorY + roomHeight/2,
+            BASE_POSITION.Z - halfLength
+        )
+        southWall.Anchored = true
+        southWall.CanCollide = true
+        southWall.Material = Enum.Material.Plastic
+        southWall.Color = Color3.fromRGB(220, 220, 170)
+    end
+    
+    -- 東側の壁（分割）
+    for sz = 0, floorSegments - 1 do
+        local eastWall = Instance.new("Part", backroomsFolder)
+        eastWall.Name = "East_Wall_" .. sz
+        eastWall.Size = Vector3.new(wallThickness, roomHeight, segmentLength + 2)
+        eastWall.Position = Vector3.new(
+            BASE_POSITION.X + halfWidth,
+            floorY + roomHeight/2,
+            BASE_POSITION.Z - halfLength + segmentLength/2 + sz * segmentLength
+        )
+        eastWall.Anchored = true
+        eastWall.CanCollide = true
+        eastWall.Material = Enum.Material.Plastic
+        eastWall.Color = Color3.fromRGB(220, 220, 170)
+    end
+    
+    -- 西側の壁（分割）
+    for sz = 0, floorSegments - 1 do
+        local westWall = Instance.new("Part", backroomsFolder)
+        westWall.Name = "West_Wall_" .. sz
+        westWall.Size = Vector3.new(wallThickness, roomHeight, segmentLength + 2)
+        westWall.Position = Vector3.new(
+            BASE_POSITION.X - halfWidth,
+            floorY + roomHeight/2,
+            BASE_POSITION.Z - halfLength + segmentLength/2 + sz * segmentLength
+        )
+        westWall.Anchored = true
+        westWall.CanCollide = true
+        westWall.Material = Enum.Material.Plastic
+        westWall.Color = Color3.fromRGB(220, 220, 170)
+    end
+    
+    -- ★迷路エリア（範囲内に収める）
+    local mazeWidth = 300
+    local mazeHeight = 300
+    local cellSize = 18
+    
+    local maze = generateMaze(mazeWidth, mazeHeight)
+    local mazeFolder = Instance.new("Folder", backroomsFolder)
+    mazeFolder.Name = "MazeSection"
+    
+    local mazeOffsetX = BASE_POSITION.X - 3000
+    local mazeOffsetZ = BASE_POSITION.Z - 3000
+    
+    for x = 1, mazeWidth do
+        for y = 1, mazeHeight do
+            if maze[x][y] == 0 and (x % 4 == 0 or y % 4 == 0) then
+                local wallX = mazeOffsetX + (x - 0.5) * cellSize
+                local wallZ = mazeOffsetZ + (y - 0.5) * cellSize
+                
+                -- 範囲内チェック
+                if math.abs(wallX) < halfWidth - cellSize and math.abs(wallZ) < halfLength - cellSize then
+                    local wall = Instance.new("Part", mazeFolder)
+                    wall.Name = string.format("MazeWall_%d_%d", x, y)
+                    wall.Size = Vector3.new(cellSize, roomHeight - 4, cellSize)
+                    wall.Position = Vector3.new(
+                        wallX,
+                        floorY + (roomHeight - 4) / 2 + 2,
+                        wallZ
+                    )
+                    wall.Anchored = true
+                    wall.CanCollide = true
+                    wall.Material = Enum.Material.Plastic
+                    wall.Color = Color3.fromRGB(240, 240, 170)
+                end
+            end
+        end
+    end
+    
+    -- ★異常エリアの生成（端まで）
+    local anomalies = createAnomalyZones(floorY, roomHeight, backroomsFolder, roomWidth, roomLength)
+    
+    -- ★エンティティの生成（端まで）
+    local entityCount = createEntities(floorY, backroomsFolder, roomWidth, roomLength)
+    
+    -- ★多数の部屋（範囲内に収める）
+    for i = 1, 100 do
+        local roomSizeX = 40 + math.random(30, 80)
+        local roomSizeZ = 40 + math.random(30, 80)
+        
+        local angle = math.random() * math.pi * 2
+        local radius = math.random(500, 3200)
+        
+        local roomPos = Vector3.new(
+            BASE_POSITION.X + math.cos(angle) * radius,
+            floorY + (roomHeight - 4) / 2 + 2,
+            BASE_POSITION.Z + math.sin(angle) * radius
+        )
+        
+        -- 範囲内に収める
+        roomPos = Vector3.new(
+            math.clamp(roomPos.X, -halfWidth + roomSizeX/2 + 20, halfWidth - roomSizeX/2 - 20),
+            floorY + (roomHeight - 4) / 2 + 2,
+            math.clamp(roomPos.Z, -halfLength + roomSizeZ/2 + 20, halfLength - roomSizeZ/2 - 20)
+        )
+        
+        local room = Instance.new("Part", backroomsFolder)
+        room.Name = "Room_" .. i
+        room.Size = Vector3.new(roomSizeX, roomHeight - 4, roomSizeZ)
+        room.Position = roomPos
+        room.Anchored = true
+        room.CanCollide = true
+        room.Material = Enum.Material.Plastic
+        room.Color = Color3.fromRGB(200 + math.random(55), 200 + math.random(55), 150 + math.random(105))
+    end
+    
+    -- ★照明（端まで）
+    local lightSpacing = 120
+    for x = -halfWidth + 60, halfWidth - 60, lightSpacing do
+        for z = -halfLength + 60, halfLength - 60, lightSpacing do
+            local light = Instance.new("Part", backroomsFolder)
+            light.Name = string.format("Light_%d_%d", x, z)
+            light.Size = Vector3.new(40, 0.3, 40)
+            light.Position = Vector3.new(BASE_POSITION.X + x, floorY + roomHeight - 3, BASE_POSITION.Z + z)
+            light.Anchored = true
+            light.CanCollide = false
+            light.Material = Enum.Material.Neon
+            light.Color = Color3.fromRGB(255, 255, 200)
+            
+            local pointLight = Instance.new("PointLight", light)
+            pointLight.Brightness = 0.8
+            pointLight.Range = 100
+            pointLight.Color = Color3.fromRGB(255, 255, 180)
+        end
+    end
+    
+    -- 霧効果
+    local atmosphere = Instance.new("Atmosphere", Workspace)
+    atmosphere.Name = "BackroomsAtmosphere"
+    atmosphere.Density = 0.5
+    atmosphere.Color = Color3.fromRGB(180, 180, 130)
+    atmosphere.Decay = Color3.fromRGB(70, 70, 50)
+    atmosphere.Glare = 0.3
+    atmosphere.Haze = 4.0
+    
+    -- 環境音
+    local soundFolder = Instance.new("Folder", backroomsFolder)
+    soundFolder.Name = "AmbienceSounds"
+    
+    local fanSound = Instance.new("Sound", soundFolder)
+    fanSound.Name = "Level0_Hum"
+    fanSound.SoundId = "rbxassetid://" .. BACKROOMS_SOUND_ID
+    fanSound.Looped = true
+    fanSound.Volume = 0.5
+    fanSound:Play()
+    
+    local horrorSound = Instance.new("Sound", soundFolder)
+    horrorSound.Name = "HorrorAmbience"
+    horrorSound.SoundId = "rbxassetid://27697743"
+    horrorSound.Looped = true
+    horrorSound.Volume = 0.3
+    horrorSound:Play()
+    
+    -- ★プレイヤーを中央に配置
+    local character = player.Character
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        character.HumanoidRootPart.CFrame = CFrame.new(
+            BASE_POSITION.X,
+            floorY + 5,
+            BASE_POSITION.Z
+        )
+    end
+    
+    return {
+        folder = backroomsFolder,
+        width = roomWidth,
+        length = roomLength,
+        height = roomHeight,
+        position = BASE_POSITION,
+        entityCount = entityCount,
+        anomalyCount = #anomalies
+    }
+end
+
+-- バックルームズ削除関数
+local function clearBackrooms()
+    local backroomsFolder = Workspace:FindFirstChild("Backrooms_Level0")
+    if backroomsFolder then
+        backroomsFolder:Destroy()
+    end
+    
+    clearEntities()
+    
+    local atmosphere = Workspace:FindFirstChild("BackroomsAtmosphere")
+    if atmosphere then
+        atmosphere:Destroy()
+    end
+    
+    Lighting.Ambient = Color3.fromRGB(0.5, 0.5, 0.5)
+    Lighting.Brightness = 1
+    
+    return "Backrooms cleared"
+end
+
+-- ボタン作成
+local noclipButton = createButton("① SPAWN 7300 FIXED", Color3.fromRGB(200, 0, 100), 40)
+noclipButton.Parent = buttonContainer
+
+local frontRoomButton = createButton("② DELETE BACKROOMS", Color3.fromRGB(255, 60, 60), 35)
+frontRoomButton.Parent = buttonContainer
+
+-- ステータス表示
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "StatusLabel"
+statusLabel.Size = UDim2.new(1, -10, 0, 30)
+statusLabel.Position = UDim2.new(0, 5, 1, -70)
+statusLabel.BackgroundTransparency = 1
+statusLabel.TextColor3 = Color3.fromRGB(180, 180, 220)
+statusLabel.Text = "Ready - Unpinned"
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 10
+statusLabel.TextWrapped = true
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = mainFrame
+
+-- GUI固定状態
+local isGUIPinned = false
+
+local function toggleGUIPin()
+    isGUIPinned = not isGUIPinned
+    
+    if isGUIPinned then
+        pinButton.Text = "Unpin GUI"
+        pinButton.BackgroundColor3 = Color3.fromRGB(120, 80, 180)
+        statusLabel.Text = "GUI Fixed"
+        statusLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+    else
+        pinButton.Text = "Fixed GUI"
+        pinButton.BackgroundColor3 = Color3.fromRGB(160, 100, 220)
+        statusLabel.Text = "GUI Unpinned"
+        statusLabel.TextColor3 = Color3.fromRGB(180, 180, 220)
+    end
+end
+
+-- AI更新ループ
+RunService.Heartbeat:Connect(function(dt)
+    updateEntities(dt)
+end)
+
+-- ① スポーンボタン
+noclipButton.MouseButton1Click:Connect(function()
+    playSound(BUTTON_SOUND_ID)
+    
+    statusLabel.Text = "🚀 Creating FIXED 7300x7300 Backrooms..."
+    statusLabel.TextColor3 = Color3.fromRGB(255, 100, 200)
+    
+    local success, result = pcall(function()
+        return createBackroomsLevel0()
+    end)
+    
+    if success then
+        local info = result
+        statusLabel.Text = string.format("✅ 7300x7300 | Entities: %d | Anomalies: %d", 
+            info.entityCount or 0, info.anomalyCount or 0)
+        statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        
+        task.wait(3)
+        statusLabel.Text = "⚠️ 40 studs = DEATH! Full area covered!"
+    else
+        statusLabel.Text = "❌ Spawn failed: " .. tostring(result)
+        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    end
+end)
+
+-- ② 削除ボタン
+frontRoomButton.MouseButton1Click:Connect(function()
+    playSound(BUTTON_SOUND_ID)
+    
+    local backroomsExists = Workspace:FindFirstChild("Backrooms_Level0") ~= nil
+    
+    if not backroomsExists then
+        statusLabel.Text = "ℹ️ No Backrooms to delete"
+        statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        return
+    end
+    
+    statusLabel.Text = "🗑️ Deleting Fixed Backrooms..."
+    statusLabel.TextColor3 = Color3.fromRGB(255, 150, 100)
+    
+    local message = clearBackrooms()
+    
+    statusLabel.Text = "✅ " .. message
+    statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+end)
+
+-- GUI固定ボタン
+pinButton.MouseButton1Click:Connect(function()
+    playSound(BUTTON_SOUND_ID)
+    toggleGUIPin()
+    statusLabel.Text = isGUIPinned and "✅ GUI Fixed" or "✅ GUI Unpinned"
+    statusLabel.TextColor3 = Color3.fromRGB(180, 140, 255)
+end)
+
+-- トグル機能
+toggleButton.MouseButton1Click:Connect(function()
+    playSound(BUTTON_SOUND_ID)
+    if buttonContainer.Visible then
+        buttonContainer.Visible = false
+        mainFrame.Size = UDim2.new(0, 200, 0, 80)
+        toggleButton.Text = "Show"
+        statusLabel.Text = "GUI Hidden"
+    else
+        buttonContainer.Visible = true
+        mainFrame.Size = UDim2.new(0, 200, 0, 180)
+        toggleButton.Text = "Hide"
+        statusLabel.Text = isGUIPinned and "GUI Fixed" or "GUI Unpinned"
+    end
+end)
+
+-- ドラッグ機能
+local dragging = false
+local dragStart, startPos
+
+local function handleDragStart(input)
+    if not isGUIPinned then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end
+
+local function handleDrag(input)
+    if dragging and not isGUIPinned then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X, 
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end
+
+title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        handleDragStart(input)
+    end
+end)
+
+title.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        handleDrag(input)
+    end
+end)
+
+-- 初期化メッセージ
+statusLabel.Text = "✅ 7300x7300 FIXED Backrooms GUI Loaded"
+task.wait(2)
+statusLabel.Text = "Ready - Unpinned"
